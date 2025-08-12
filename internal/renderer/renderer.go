@@ -118,27 +118,13 @@ func (r *Renderer) applyTemplate(content string, variables map[string]interface{
 
 // substituteVariables replaces variables in the content
 func (r *Renderer) substituteVariables(content string, variables map[string]interface{}) (string, error) {
-	// Create a map with all variables (including defaults)
+	// Create a map with provided variables
 	allVars := make(map[string]interface{})
 
-	// First, add defaults
-	for _, v := range r.prompt.Variables {
-		if v.Default != nil {
-			allVars[v.Name] = v.Default
-		}
-	}
-
-	// Then override with provided variables
-	for k, v := range variables {
-		allVars[k] = v
-	}
-
-	// Check for required variables
-	for _, v := range r.prompt.Variables {
-		if v.Required {
-			if _, ok := allVars[v.Name]; !ok {
-				return "", fmt.Errorf("required variable '%s' not provided", v.Name)
-			}
+	// Use provided variables if any
+	if variables != nil {
+		for k, v := range variables {
+			allVars[k] = v
 		}
 	}
 
@@ -175,36 +161,7 @@ func (r *Renderer) substituteVariables(content string, variables map[string]inte
 
 // ValidateVariables checks if all required variables are provided
 func (r *Renderer) ValidateVariables(variables map[string]interface{}) error {
-	for _, v := range r.prompt.Variables {
-		if v.Required {
-			if _, ok := variables[v.Name]; !ok {
-				return fmt.Errorf("required variable '%s' not provided", v.Name)
-			}
-		}
-
-		// Type validation
-		if val, ok := variables[v.Name]; ok {
-			if err := validateVariableType(val, v.Type); err != nil {
-				return fmt.Errorf("variable '%s': %w", v.Name, err)
-			}
-
-			// Options validation
-			if len(v.Options) > 0 {
-				valStr := fmt.Sprint(val)
-				found := false
-				for _, opt := range v.Options {
-					if opt == valStr {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return fmt.Errorf("variable '%s' must be one of: %v", v.Name, v.Options)
-				}
-			}
-		}
-	}
-
+	// Since we removed variables functionality, this always returns nil
 	return nil
 }
 

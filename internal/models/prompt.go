@@ -12,7 +12,6 @@ type Prompt struct {
 	Name         string                 `yaml:"title"`
 	Summary      string                 `yaml:"description"`
 	Tags         []string               `yaml:"tags"`
-	Variables    []Variable             `yaml:"variables"`
 	TemplateRef  string                 `yaml:"template,omitempty"`
 	Metadata     map[string]interface{} `yaml:"metadata,omitempty"`
 	CreatedAt    time.Time              `yaml:"created_at"`
@@ -24,15 +23,6 @@ type Prompt struct {
 	ContentHash string `yaml:"-"` // SHA256 hash of the content
 }
 
-// Variable represents a template variable with type and default value
-type Variable struct {
-	Name        string      `yaml:"name"`
-	Type        string      `yaml:"type"` // string, number, boolean, list
-	Description string      `yaml:"description,omitempty"`
-	Default     interface{} `yaml:"default,omitempty"`
-	Required    bool        `yaml:"required"`
-	Options     []string    `yaml:"options,omitempty"` // For enum-like variables
-}
 
 // Implement list.Item interface for bubbles list component
 
@@ -51,13 +41,32 @@ func (p Prompt) Title() string {
 
 // Description satisfies the list.Item interface  
 func (p Prompt) Description() string {
+	desc := ""
 	if p.Summary != "" {
-		return p.Summary
+		desc = p.Summary
 	}
+	
+	// Add last edited info
+	if !p.UpdatedAt.IsZero() {
+		lastEdited := " • Last edited: " + p.UpdatedAt.Format("2006-01-02 15:04")
+		if desc == "" {
+			desc = lastEdited[3:] // Remove the " • " prefix when it's the first item
+		} else {
+			desc += lastEdited
+		}
+	}
+	
+	// Add tags if available
 	if len(p.Tags) > 0 {
-		return "Tags: " + joinTags(p.Tags)
+		tagsStr := " • Tags: " + joinTags(p.Tags)
+		if desc == "" {
+			desc = tagsStr[3:] // Remove the " • " prefix when it's the first item
+		} else {
+			desc += tagsStr
+		}
 	}
-	return ""
+	
+	return desc
 }
 
 func joinTags(tags []string) string {

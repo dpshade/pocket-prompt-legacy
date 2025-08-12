@@ -52,7 +52,6 @@ type ViewMode int
 const (
 	ViewLibrary ViewMode = iota
 	ViewPromptDetail
-	ViewVariables
 	ViewCreateMenu
 	ViewCreateFromScratch
 	ViewCreateFromTemplate
@@ -80,7 +79,6 @@ type Model struct {
 	loading        bool
 	selectedPrompt *models.Prompt
 	selectedTemplate *models.Template
-	variables      map[string]interface{}
 
 	// Creation state
 	newPrompt      *models.Prompt
@@ -253,7 +251,6 @@ func NewModel(svc *service.Service) (*Model, error) {
 		prompts:         prompts,
 		templates:       templates,
 		loading:         true, // Start in loading state
-		variables:       make(map[string]interface{}),
 		glamourRenderer: renderer,
 	}, nil
 }
@@ -441,7 +438,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Back):
 			switch m.viewMode {
-			case ViewPromptDetail, ViewVariables:
+			case ViewPromptDetail:
 				m.viewMode = ViewLibrary
 				m.selectedPrompt = nil
 				m.renderedContent = ""
@@ -473,7 +470,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Left):
 			// Use left arrow for back navigation in detail views
 			switch m.viewMode {
-			case ViewPromptDetail, ViewVariables:
+			case ViewPromptDetail:
 				m.viewMode = ViewLibrary
 				m.selectedPrompt = nil
 				m.renderedContent = ""
@@ -679,9 +676,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport = newViewport
 		cmds = append(cmds, cmd)
 
-	case ViewVariables:
-		// TODO: Handle variable form updates
-
 	case ViewCreateMenu:
 		if m.selectForm != nil {
 			cmd := m.selectForm.Update(msg)
@@ -823,9 +817,6 @@ func (m Model) View() string {
 	case ViewPromptDetail:
 		mainView = m.renderPromptDetailView()
 
-	case ViewVariables:
-		mainView = m.renderVariablesView()
-
 	case ViewCreateMenu:
 		mainView = m.renderCreateMenuView()
 
@@ -923,6 +914,9 @@ func (m Model) renderPromptDetailView() string {
 
 	// Create metadata line
 	metadata := fmt.Sprintf("ID: %s • Version: %s", m.selectedPrompt.ID, m.selectedPrompt.Version)
+	if !m.selectedPrompt.UpdatedAt.IsZero() {
+		metadata += fmt.Sprintf(" • Last edited: %s", m.selectedPrompt.UpdatedAt.Format("2006-01-02 15:04"))
+	}
 	if len(m.selectedPrompt.Tags) > 0 {
 		tags := ""
 		for i, tag := range m.selectedPrompt.Tags {
@@ -952,35 +946,6 @@ func (m Model) renderPromptDetailView() string {
 	)
 }
 
-// renderVariablesView renders the variables form (placeholder)
-func (m Model) renderVariablesView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Prompt Variables")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
-	
-	// Placeholder for variables form
-	content := "Variables form coming soon...\n\nPress esc/b to go back"
-
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		headerLine,
-		"",
-		content,
-	)
-}
 
 // renderCreateMenuView renders the create menu using SelectForm
 func (m Model) renderCreateMenuView() string {
@@ -1265,10 +1230,6 @@ func (m Model) renderEditPromptView() string {
 	tagsHelp := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  Use comma-separated values for organization and discovery")
 	formFields = append(formFields, tagsLabel, m.createForm.inputs[tagsField].View(), tagsHelp, "")
 
-	// Variables field
-	variablesLabel := labelStyle.Render("Variables:")
-	formFields = append(formFields, variablesLabel, m.createForm.inputs[variablesField].View(), "")
-
 	// Template reference field
 	templateRefLabel := labelStyle.Render("Template Ref:")
 	formFields = append(formFields, templateRefLabel, m.createForm.inputs[templateRefField].View(), "")
@@ -1487,15 +1448,15 @@ func (m *Model) renderPreview() error {
 	// Create a renderer for the prompt
 	r := renderer.NewRenderer(m.selectedPrompt, nil)
 
-	// Render with current variables
-	rendered, err := r.RenderText(m.variables)
+	// Render with no variables
+	rendered, err := r.RenderText(nil)
 	if err != nil {
 		// Show the raw content if rendering fails
 		rendered = m.selectedPrompt.Content
 	}
 
 	// Also render as JSON for the 'y' copy option
-	renderedJSON, err := r.RenderJSON(m.variables)
+	renderedJSON, err := r.RenderJSON(nil)
 	if err != nil {
 		renderedJSON = ""
 	}

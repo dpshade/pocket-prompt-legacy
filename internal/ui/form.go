@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -27,14 +26,13 @@ const (
 	titleField
 	descriptionField
 	tagsField
-	variablesField
 	templateRefField
 	contentField
 )
 
 // NewCreateFormFromScratch creates a simplified empty form for starting from scratch
 func NewCreateFormFromScratch() *CreateForm {
-	inputs := make([]textinput.Model, 7) // Keep same size for compatibility
+	inputs := make([]textinput.Model, 6) // Reduced from 7 after removing variables field
 
 	// ID field - completely empty
 	inputs[idField] = textinput.New()
@@ -72,7 +70,7 @@ func NewCreateFormFromScratch() *CreateForm {
 
 // NewCreateForm creates a new prompt creation form with helpful placeholders
 func NewCreateForm() *CreateForm {
-	inputs := make([]textinput.Model, 7) // Increased from 4 to 7
+	inputs := make([]textinput.Model, 6) // Reduced from 7 after removing variables field
 
 	// ID field
 	inputs[idField] = textinput.New()
@@ -104,12 +102,6 @@ func NewCreateForm() *CreateForm {
 	inputs[tagsField].Placeholder = "ai, prompt-engineering, productivity (comma-separated)"
 	inputs[tagsField].CharLimit = 300
 	inputs[tagsField].Width = 60
-
-	// Variables field
-	inputs[variablesField] = textinput.New()
-	inputs[variablesField].Placeholder = "name:type:required:default, ..."
-	inputs[variablesField].CharLimit = 500
-	inputs[variablesField].Width = 60
 
 	// Template reference field
 	inputs[templateRefField] = textinput.New()
@@ -312,7 +304,6 @@ func (f *CreateForm) ToPrompt() *models.Prompt {
 			Name:      f.inputs[titleField].Value(),
 			Summary:   "", // Empty summary for scratch forms
 			Tags:      []string{}, // No tags for scratch forms
-			Variables: []models.Variable{}, // No variables for scratch forms
 			TemplateRef: "", // No template reference for scratch forms
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -332,27 +323,6 @@ func (f *CreateForm) ToPrompt() *models.Prompt {
 		}
 	}
 
-	// Parse variables from the variables field
-	variables := []models.Variable{}
-	if f.inputs[variablesField].Value() != "" {
-		varList := strings.Split(f.inputs[variablesField].Value(), ",")
-		for _, varStr := range varList {
-			parts := strings.Split(strings.TrimSpace(varStr), ":")
-			if len(parts) >= 2 {
-				variable := models.Variable{
-					Name: strings.TrimSpace(parts[0]),
-					Type: strings.TrimSpace(parts[1]),
-				}
-				if len(parts) >= 3 {
-					variable.Required = strings.TrimSpace(parts[2]) == "true"
-				}
-				if len(parts) >= 4 {
-					variable.Default = strings.TrimSpace(parts[3])
-				}
-				variables = append(variables, variable)
-			}
-		}
-	}
 
 	// Get version as entered by user (no default)
 	version := f.inputs[versionField].Value()
@@ -363,7 +333,6 @@ func (f *CreateForm) ToPrompt() *models.Prompt {
 		Name:        f.inputs[titleField].Value(),
 		Summary:     f.inputs[descriptionField].Value(),
 		Tags:        tags,
-		Variables:   variables,
 		TemplateRef: f.inputs[templateRefField].Value(),
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -404,23 +373,6 @@ func (f *CreateForm) LoadPrompt(prompt *models.Prompt) {
 	}
 	f.inputs[tagsField].SetValue(tags)
 	
-	// Convert variables to string format
-	variables := ""
-	for i, variable := range prompt.Variables {
-		if i > 0 {
-			variables += ", "
-		}
-		variables += variable.Name + ":" + variable.Type
-		if variable.Required {
-			variables += ":true"
-		} else {
-			variables += ":false"
-		}
-		if variable.Default != nil {
-			variables += ":" + fmt.Sprintf("%v", variable.Default)
-		}
-	}
-	f.inputs[variablesField].SetValue(variables)
 	
 	f.inputs[templateRefField].SetValue(prompt.TemplateRef)
 	f.textarea.SetValue(prompt.Content)
