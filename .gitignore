@@ -17,10 +17,11 @@
 # Go workspace file
 go.work
 
-# Addae specific
-addae
-addae.db*
+# Pocket Prompt specific
+pocket-prompt
+*.db*
 log.md
+.pocket-prompt/
 
 # OS-generated files
 .DS_Store

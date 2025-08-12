@@ -1,263 +1,266 @@
 package service
 
 import (
-	"database/sql"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dylanshade/pocket-prompt/internal/storage"
+	"github.com/sahilm/fuzzy"
 )
 
+// Service provides business logic for prompt management
 type Service struct {
-	db *sql.DB
+	storage *storage.Storage
+	prompts []*models.Prompt // Cached prompts for fast access
 }
 
-func NewService(db *sql.DB) *Service {
-	return &Service{db: db}
-}
-
-type Project struct {
-	ID          int
-	Name        string
-	Summary     string
-	Desc        string
-	Status      string
-	DateCreated time.Time
-	DateUpdated time.Time
-}
-
-func (p Project) Title() string       { return p.Name }
-func (p Project) Description() string { return p.Status }
-func (p Project) FilterValue() string { return p.Name }
-
-type Task struct {
-	ID          int
-	ProjectID   int
-	Title       string
-	Desc        string
-	CompletedAt *time.Time
-	DateCreated time.Time
-	DateUpdated time.Time
-}
-
-type Log struct {
-	ID          int
-	ProjectID   int
-	Title       string
-	Desc        string
-	DateCreated time.Time
-	DateUpdated time.Time
-}
-
-// Project CRUD operations
-func (s *Service) CreateProject(p *Project) error {
-	_, err := s.db.Exec(`
-		INSERT INTO projects (name, summary, desc, status, date_created, date_updated)
-		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, p.Name, p.Summary, p.Desc, p.Status)
-	return err
-}
-
-func (s *Service) GetProject(id int) (*Project, error) {
-	project := &Project{}
-	err := s.db.QueryRow(`
-		SELECT id, name, summary, desc, status, date_created, date_updated 
-		FROM projects WHERE id = ?
-	`, id).Scan(&project.ID, &project.Name, &project.Summary, &project.Desc, &project.Status,
-		&project.DateCreated, &project.DateUpdated)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("project not found")
+// NewService creates a new service instance
+func NewService() (*Service, error) {
+	store, err := storage.NewStorage("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
-	return project, err
+
+	svc := &Service{
+		storage: store,
+	}
+
+	// Load prompts into cache
+	if err := svc.loadPrompts(); err != nil {
+		// It's okay if we can't load prompts initially (library might not be initialized)
+		// Just log the error
+		fmt.Printf("Note: Could not load prompts (library may not be initialized): %v\n", err)
+	}
+
+	return svc, nil
 }
 
-func (s *Service) UpdateProject(p *Project) error {
-	result, err := s.db.Exec(`
-		UPDATE projects 
-		SET name = ?, summary = ?, desc = ?, status = ?, date_updated = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, p.Name, p.Summary, p.Desc, p.Status, p.ID)
+// InitLibrary initializes a new prompt library
+func (s *Service) InitLibrary() error {
+	return s.storage.InitLibrary()
+}
+
+// loadPrompts loads all prompts into memory for fast access
+func (s *Service) loadPrompts() error {
+	prompts, err := s.storage.ListPrompts()
 	if err != nil {
 		return err
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return fmt.Errorf("project not found")
-	}
+	s.prompts = prompts
 	return nil
 }
 
-func (s *Service) DeleteProject(id int) error {
-	result, err := s.db.Exec("DELETE FROM projects WHERE id = ?", id)
-	if err != nil {
-		return err
+// ListPrompts returns all prompts
+func (s *Service) ListPrompts() ([]*models.Prompt, error) {
+	if len(s.prompts) == 0 {
+		if err := s.loadPrompts(); err != nil {
+			return nil, err
+		}
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return fmt.Errorf("project not found")
-	}
-	return nil
+	return s.prompts, nil
 }
 
-// Task CRUD operations
-func (s *Service) CreateTask(projectID int, title, desc string) error {
-	_, err := s.db.Exec(`
-		INSERT INTO tasks (project_id, title, desc, date_created, date_updated)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, projectID, title, desc)
-	return err
-}
-
-func (s *Service) UpdateTask(id int, title, desc string, completedAt *time.Time) error {
-	result, err := s.db.Exec(`
-		UPDATE tasks 
-		SET title = ?, desc = ?, completed_at = ?, date_updated = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, title, desc, completedAt, id)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return fmt.Errorf("task not found")
-	}
-	return nil
-}
-
-func (s *Service) DeleteTask(id int) error {
-	result, err := s.db.Exec("DELETE FROM tasks WHERE id = ?", id)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return fmt.Errorf("task not found")
-	}
-	return nil
-}
-
-// Log CRUD operations
-func (s *Service) CreateLog(projectID int, title, desc string) error {
-	_, err := s.db.Exec(`
-		INSERT INTO logs (project_id, title, desc, date_created, date_updated)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, projectID, title, desc)
-	return err
-}
-
-func (s *Service) UpdateLog(id int, title, desc string) error {
-	result, err := s.db.Exec(`
-		UPDATE logs 
-		SET title = ?, desc = ?, date_updated = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, title, desc, id)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return fmt.Errorf("log not found")
-	}
-	return nil
-}
-
-func (s *Service) DeleteLog(id int) error {
-	result, err := s.db.Exec("DELETE FROM logs WHERE id = ?", id)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return fmt.Errorf("log not found")
-	}
-	return nil
-}
-
-// List functions
-func (s *Service) ListProjects() ([]Project, error) {
-	rows, err := s.db.Query(`
-		SELECT id, name, summary, desc, status, date_created, date_updated 
-		FROM projects
-	`)
+// SearchPrompts searches prompts by query string
+func (s *Service) SearchPrompts(query string) ([]*models.Prompt, error) {
+	prompts, err := s.ListPrompts()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var projects []Project
-	for rows.Next() {
-		var p Project
-		err := rows.Scan(&p.ID, &p.Name, &p.Summary, &p.Desc, &p.Status,
-			&p.DateCreated, &p.DateUpdated)
-		if err != nil {
-			return nil, err
-		}
-		projects = append(projects, p)
+	if query == "" {
+		return prompts, nil
 	}
-	return projects, nil
+
+	// Create searchable strings for each prompt
+	var searchStrings []string
+	for _, p := range prompts {
+		searchStr := fmt.Sprintf("%s %s %s %s", 
+			p.Name, 
+			p.Summary, 
+			p.ID,
+			strings.Join(p.Tags, " "))
+		searchStrings = append(searchStrings, searchStr)
+	}
+
+	// Perform fuzzy search
+	matches := fuzzy.Find(query, searchStrings)
+	
+	// Build result list
+	var results []*models.Prompt
+	for _, match := range matches {
+		results = append(results, prompts[match.Index])
+	}
+
+	return results, nil
 }
 
-func (s *Service) ListProjectTasks(projectID int) ([]Task, error) {
-	rows, err := s.db.Query(`
-		SELECT id, project_id, title, desc, completed_at, date_created, date_updated 
-		FROM tasks 
-		WHERE project_id = ?
-	`, projectID)
+// GetPrompt returns a prompt by ID
+func (s *Service) GetPrompt(id string) (*models.Prompt, error) {
+	prompts, err := s.ListPrompts()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var tasks []Task
-	for rows.Next() {
-		var t Task
-		err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Desc, &t.CompletedAt,
-			&t.DateCreated, &t.DateUpdated)
-		if err != nil {
-			return nil, err
+	for _, p := range prompts {
+		if p.ID == id {
+			return p, nil
 		}
-		tasks = append(tasks, t)
 	}
-	return tasks, nil
+
+	return nil, fmt.Errorf("prompt not found: %s", id)
 }
 
-func (s *Service) ListProjectLogs(projectID int) ([]Log, error) {
-	rows, err := s.db.Query(`
-		SELECT id, project_id, title, desc, date_created, date_updated 
-		FROM logs 
-		WHERE project_id = ?
-	`, projectID)
+// CreatePrompt creates a new prompt
+func (s *Service) CreatePrompt(prompt *models.Prompt) error {
+	// Set timestamps
+	now := time.Now()
+	prompt.CreatedAt = now
+	prompt.UpdatedAt = now
+
+	// Generate file path if not set
+	if prompt.FilePath == "" {
+		prompt.FilePath = filepath.Join("prompts", fmt.Sprintf("%s.md", prompt.ID))
+	}
+
+	// Save to storage
+	if err := s.storage.SavePrompt(prompt); err != nil {
+		return err
+	}
+
+	// Reload prompts cache
+	return s.loadPrompts()
+}
+
+// UpdatePrompt updates an existing prompt
+func (s *Service) UpdatePrompt(prompt *models.Prompt) error {
+	// Update timestamp
+	prompt.UpdatedAt = time.Now()
+
+	// Save to storage
+	if err := s.storage.SavePrompt(prompt); err != nil {
+		return err
+	}
+
+	// Reload prompts cache
+	return s.loadPrompts()
+}
+
+// DeletePrompt deletes a prompt by ID
+func (s *Service) DeletePrompt(id string) error {
+	prompt, err := s.GetPrompt(id)
+	if err != nil {
+		return err
+	}
+
+	// Delete file
+	// TODO: Implement file deletion in storage
+	_ = prompt
+
+	// Reload prompts cache
+	return s.loadPrompts()
+}
+
+// FilterPromptsByTag returns prompts that have the specified tag
+func (s *Service) FilterPromptsByTag(tag string) ([]*models.Prompt, error) {
+	prompts, err := s.ListPrompts()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var logs []Log
-	for rows.Next() {
-		var l Log
-		err := rows.Scan(&l.ID, &l.ProjectID, &l.Title, &l.Desc, &l.DateCreated, &l.DateUpdated)
-		if err != nil {
-			return nil, err
+	var filtered []*models.Prompt
+	for _, p := range prompts {
+		for _, t := range p.Tags {
+			if t == tag {
+				filtered = append(filtered, p)
+				break
+			}
 		}
-		logs = append(logs, l)
 	}
-	return logs, nil
+
+	return filtered, nil
+}
+
+// GetAllTags returns all unique tags from all prompts
+func (s *Service) GetAllTags() ([]string, error) {
+	prompts, err := s.ListPrompts()
+	if err != nil {
+		return nil, err
+	}
+
+	tagMap := make(map[string]bool)
+	for _, p := range prompts {
+		for _, tag := range p.Tags {
+			tagMap[tag] = true
+		}
+	}
+
+	var tags []string
+	for tag := range tagMap {
+		tags = append(tags, tag)
+	}
+
+	return tags, nil
+}
+
+// ListTemplates returns all available templates
+func (s *Service) ListTemplates() ([]*models.Template, error) {
+	return s.storage.ListTemplates()
+}
+
+// GetTemplate returns a template by ID
+func (s *Service) GetTemplate(id string) (*models.Template, error) {
+	templates, err := s.ListTemplates()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, t := range templates {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+
+	return nil, fmt.Errorf("template not found: %s", id)
+}
+
+// SavePrompt saves a prompt (create or update)
+func (s *Service) SavePrompt(prompt *models.Prompt) error {
+	// Check if this is an existing prompt
+	existing, err := s.GetPrompt(prompt.ID)
+	if err == nil {
+		// Update existing prompt
+		prompt.CreatedAt = existing.CreatedAt // Keep original creation time
+		prompt.UpdatedAt = time.Now()
+		return s.UpdatePrompt(prompt)
+	} else {
+		// Create new prompt
+		return s.CreatePrompt(prompt)
+	}
+}
+
+// SaveTemplate saves a template (create or update)
+func (s *Service) SaveTemplate(template *models.Template) error {
+	// Set file path if not set
+	if template.FilePath == "" {
+		template.FilePath = filepath.Join("templates", fmt.Sprintf("%s.md", template.ID))
+	}
+
+	// Check if this is an existing template
+	existing, err := s.GetTemplate(template.ID)
+	if err == nil {
+		// Update existing template
+		template.CreatedAt = existing.CreatedAt // Keep original creation time
+		template.UpdatedAt = time.Now()
+	} else {
+		// Create new template
+		now := time.Now()
+		template.CreatedAt = now
+		template.UpdatedAt = now
+	}
+
+	// Save to storage
+	return s.storage.SaveTemplate(template)
 }

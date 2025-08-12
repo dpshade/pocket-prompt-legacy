@@ -1,59 +1,46 @@
 package main
 
 import (
-	"embed"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 
-	"github.com/quamejnr/addae/internal/service"
-	"github.com/quamejnr/addae/internal/ui"
-
-	"github.com/quamejnr/addae/internal/db"
+	"github.com/dylanshade/pocket-prompt/internal/service"
+	"github.com/dylanshade/pocket-prompt/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-var version = "dev"
-
-//go:embed internal/db/migrations/*.sql
-var migrationsFS embed.FS
+var version = "0.1.0"
 
 func main() {
 	var showVersion bool
+	var initLib bool
 
 	flag.BoolVar(&showVersion, "version", false, "Print version information")
+	flag.BoolVar(&initLib, "init", false, "Initialize a new prompt library")
 	flag.Parse()
 
 	if showVersion {
-		fmt.Printf("addae version %s\n", version)
+		fmt.Printf("pocket-prompt version %s\n", version)
 		os.Exit(0)
 	}
 
-	// Initialize database
-	database, err := db.InitDB("")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer database.Close()
-
-	// Get the migrations subdirectory
-	migrations, err := fs.Sub(migrationsFS, "internal/db/migrations")
+	// Initialize service with file storage
+	svc, err := service.NewService()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	// Run migrations with embedded files
-	if err := db.RunMigrationsFromFS(database, migrations); err != nil {
-		fmt.Println(err)
+	if initLib {
+		if err := svc.InitLibrary(); err != nil {
+			fmt.Println("Error initializing library:", err)
+			return
+		}
+		fmt.Println("Initialized Pocket Prompt library")
 		return
 	}
-
-	// Initialize service with database
-	svc := service.NewService(database)
 
 	// Initialize TUI
 	model, err := ui.NewModel(svc)
