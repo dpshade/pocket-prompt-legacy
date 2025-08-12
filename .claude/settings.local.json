@@ -17,6 +17,10 @@
       "Bash(git reset:*)",
       "Bash(cd:*)",
       "Bash(true)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(chmod:*)",
+      "Bash(cd:*)",
       "Bash(cd:*)"
     ],
     "deny": []

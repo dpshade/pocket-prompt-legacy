@@ -167,8 +167,8 @@ func (f *CreateForm) Update(msg tea.Msg) tea.Cmd {
 				f.nextField()
 				return nil
 			}
-		case "ctrl+up", "ctrl+home":
-			// Jump to beginning of content (CTRL+UP or CTRL+HOME)
+		case "alt+up", "ctrl+home":
+			// Jump to beginning of content (ALT+UP or CTRL+HOME)
 			if f.focused == contentField {
 				// Create ctrl+home key message
 				ctrlHomeMsg := tea.KeyMsg{
@@ -178,8 +178,8 @@ func (f *CreateForm) Update(msg tea.Msg) tea.Cmd {
 				f.textarea, cmd = f.textarea.Update(ctrlHomeMsg)
 				return cmd
 			}
-		case "ctrl+down", "ctrl+end":
-			// Jump to end of content (CTRL+DOWN or CTRL+END)
+		case "alt+down", "ctrl+end":
+			// Jump to end of content (ALT+DOWN or CTRL+END)
 			if f.focused == contentField {
 				// Create ctrl+end key message
 				ctrlEndMsg := tea.KeyMsg{
@@ -574,8 +574,8 @@ func (f *TemplateForm) Update(msg tea.Msg) tea.Cmd {
 				f.nextField()
 				return nil
 			}
-		case "ctrl+up", "ctrl+home":
-			// Jump to beginning of content (CTRL+UP or CTRL+HOME)
+		case "alt+up", "ctrl+home":
+			// Jump to beginning of content (ALT+UP or CTRL+HOME)
 			if f.focused == templateContentField {
 				// Create ctrl+home key message
 				ctrlHomeMsg := tea.KeyMsg{
@@ -585,8 +585,8 @@ func (f *TemplateForm) Update(msg tea.Msg) tea.Cmd {
 				f.textarea, cmd = f.textarea.Update(ctrlHomeMsg)
 				return cmd
 			}
-		case "ctrl+down", "ctrl+end":
-			// Jump to end of content (CTRL+DOWN or CTRL+END)
+		case "alt+down", "ctrl+end":
+			// Jump to end of content (ALT+DOWN or CTRL+END)
 			if f.focused == templateContentField {
 				// Create ctrl+end key message
 				ctrlEndMsg := tea.KeyMsg{

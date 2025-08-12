@@ -17,6 +17,35 @@ import (
 	"github.com/dylanshade/pocket-prompt/internal/service"
 )
 
+// Commands for async operations
+type loadCompleteMsg struct {
+	prompts   []*models.Prompt
+	templates []*models.Template
+	err       error
+}
+
+// loadPromptsCmd starts async loading of prompts and templates
+func loadPromptsCmd(svc *service.Service) tea.Cmd {
+	return func() tea.Msg {
+		// Load in background goroutine
+		prompts, err := svc.ListPrompts()
+		if err != nil {
+			prompts = []*models.Prompt{}
+		}
+		
+		templates, err2 := svc.ListTemplates()
+		if err2 != nil {
+			templates = []*models.Template{}
+		}
+		
+		return loadCompleteMsg{
+			prompts:   prompts,
+			templates: templates,
+			err:       err,
+		}
+	}
+}
+
 // ViewMode represents the current view in the TUI
 type ViewMode int
 
@@ -48,6 +77,7 @@ type Model struct {
 	// Data
 	prompts        []*models.Prompt
 	templates      []*models.Template
+	loading        bool
 	selectedPrompt *models.Prompt
 	selectedTemplate *models.Template
 	variables      map[string]interface{}
@@ -58,6 +88,7 @@ type Model struct {
 	templateForm   *TemplateForm
 	selectForm     *SelectForm
 	editMode       bool
+	deleteConfirm  bool
 
 	// Rendered content
 	renderedContent     string
@@ -92,6 +123,7 @@ type KeyMap struct {
 	Export   key.Binding
 	New      key.Binding
 	Edit     key.Binding
+	Delete   key.Binding
 	Templates key.Binding
 }
 
@@ -105,8 +137,8 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Enter, k.Back, k.Search, k.New},
-		{k.Edit, k.Templates, k.Copy, k.CopyJSON},
-		{k.Export, k.Help, k.Quit},
+		{k.Edit, k.Delete, k.Templates, k.Copy},
+		{k.CopyJSON, k.Export, k.Help, k.Quit},
 	}
 }
 
@@ -167,6 +199,10 @@ var keys = KeyMap{
 		key.WithKeys("e"),
 		key.WithHelp("e", "edit"),
 	),
+	Delete: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "delete"),
+	),
 	Templates: key.NewBinding(
 		key.WithKeys("t"),
 		key.WithHelp("t", "templates"),
@@ -175,19 +211,10 @@ var keys = KeyMap{
 
 // NewModel creates a new TUI model
 func NewModel(svc *service.Service) (*Model, error) {
-	// Load prompts
-	prompts, err := svc.ListPrompts()
-	if err != nil {
-		// Continue even if we can't load prompts initially
-		prompts = []*models.Prompt{}
-	}
-
-	// Load templates
-	templates, err := svc.ListTemplates()
-	if err != nil {
-		// It's okay if templates fail to load
-		templates = []*models.Template{}
-	}
+	// Start with empty data for immediate UI responsiveness
+	// Data will be loaded asynchronously
+	prompts := []*models.Prompt{}
+	templates := []*models.Template{}
 
 	// Convert prompts to list items
 	items := make([]list.Item, len(prompts))
@@ -225,6 +252,7 @@ func NewModel(svc *service.Service) (*Model, error) {
 		keys:            keys,
 		prompts:         prompts,
 		templates:       templates,
+		loading:         true, // Start in loading state
 		variables:       make(map[string]interface{}),
 		glamourRenderer: renderer,
 	}, nil
@@ -232,7 +260,8 @@ func NewModel(svc *service.Service) (*Model, error) {
 
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
-	return nil
+	// Start async loading of prompts and templates
+	return loadPromptsCmd(m.service)
 }
 
 // tickMsg is sent to clear the status message
@@ -258,6 +287,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				return m, clearStatusCmd()
 			}
+		}
+	case loadCompleteMsg:
+		// Data loading completed
+		m.loading = false
+		m.prompts = msg.prompts
+		m.templates = msg.templates
+		
+		// Update prompt list with loaded data
+		items := make([]list.Item, len(m.prompts))
+		for i, p := range m.prompts {
+			items[i] = p
+		}
+		m.promptList.SetItems(items)
+		
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Warning: %v", msg.err)
+			m.statusTimeout = 100 // Show for ~5 seconds
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -302,6 +348,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Reset delete confirmation for any key except Delete key
+		if !key.Matches(msg, m.keys.Delete) {
+			m.deleteConfirm = false
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -323,18 +374,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "ctrl+s" {
 				switch m.viewMode {
 				case ViewEditPrompt:
-					if m.createForm != nil && m.createForm.IsSubmitted() {
+					if m.createForm != nil {
 						// Save the prompt
 						prompt := m.createForm.ToPrompt()
 						if m.editMode && m.selectedPrompt != nil {
-							// Keep original creation date and increment version for edits
-							prompt.CreatedAt = m.selectedPrompt.CreatedAt
+							// For edits, the service will handle version increment and archival
+							prompt.ID = m.selectedPrompt.ID // Ensure we're updating the same prompt
 						}
 						if err := m.service.SavePrompt(prompt); err != nil {
 							m.statusMsg = fmt.Sprintf("Save failed: %v", err)
 							m.statusTimeout = 3
 						} else {
-							m.statusMsg = "Prompt saved successfully!"
+							if m.editMode {
+								m.statusMsg = "Prompt updated! Previous version archived."
+							} else {
+								m.statusMsg = "Prompt saved successfully!"
+							}
 							m.statusTimeout = 2
 							// Refresh prompt list
 							if prompts, err := m.service.ListPrompts(); err == nil {
@@ -354,10 +409,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, clearStatusCmd()
 					}
 				case ViewEditTemplate:
-					if m.templateForm != nil && m.templateForm.IsSubmitted() {
+					if m.templateForm != nil {
 						// Save the template
 						template := m.templateForm.ToTemplate()
 						if m.editMode && m.selectedTemplate != nil {
+							// For edits, ensure we're updating the same template
+							template.ID = m.selectedTemplate.ID
 							// Keep original creation date for edits
 							template.CreatedAt = m.selectedTemplate.CreatedAt
 						}
@@ -513,6 +570,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editMode = true
 					m.viewMode = ViewEditTemplate
 				}
+			}
+
+		case key.Matches(msg, m.keys.Delete):
+			switch m.viewMode {
+			case ViewEditPrompt:
+				if m.selectedPrompt != nil {
+					if !m.deleteConfirm {
+						// First press: show confirmation
+						m.deleteConfirm = true
+						m.statusMsg = "Press 'd' again to confirm deletion"
+						m.statusTimeout = 100 // Keep showing until next action
+						return m, nil
+					} else {
+						// Second press: actually delete
+						m.deleteConfirm = false
+						if err := m.service.DeletePrompt(m.selectedPrompt.ID); err != nil {
+							m.statusMsg = fmt.Sprintf("Delete failed: %v", err)
+							m.statusTimeout = 3
+						} else {
+							m.statusMsg = "Prompt deleted successfully!"
+							m.statusTimeout = 2
+							// Refresh prompt list
+							if prompts, err := m.service.ListPrompts(); err == nil {
+								m.prompts = prompts
+								// Update list items
+								items := make([]list.Item, len(prompts))
+								for i, p := range prompts {
+									items[i] = p
+								}
+								m.promptList.SetItems(items)
+							}
+							// Go back to library
+							m.viewMode = ViewLibrary
+							m.createForm = nil
+							m.editMode = false
+							m.selectedPrompt = nil
+						}
+						return m, clearStatusCmd()
+					}
+				}
+			case ViewEditTemplate:
+				// Template deletion could be added here if needed
+				m.statusMsg = "Template deletion not yet implemented"
+				m.statusTimeout = 2
+				return m, clearStatusCmd()
 			}
 
 		case key.Matches(msg, m.keys.Templates):
@@ -1000,7 +1102,7 @@ func (m Model) renderCreateFromScratchView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Ctrl+↑/↓ top/bottom • Ctrl+S save • ←/esc/b cancel")
+	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Alt+↑/↓ top/bottom • Ctrl+S save • d d delete • ←/esc/b cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1146,16 +1248,6 @@ func (m Model) renderEditPromptView() string {
 	// Build form fields
 	var formFields []string
 
-	// ID field (read-only in edit mode)
-	idLabel := labelStyle.Render("ID (read-only):")
-	idValue := ""
-	if m.editMode && m.selectedPrompt != nil {
-		idValue = m.selectedPrompt.ID
-	} else {
-		idValue = m.createForm.inputs[idField].View()
-	}
-	formFields = append(formFields, idLabel, idValue, "")
-
 	// Version field
 	versionLabel := labelStyle.Render("Version:")
 	formFields = append(formFields, versionLabel, m.createForm.inputs[versionField].View(), "")
@@ -1186,7 +1278,7 @@ func (m Model) renderEditPromptView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Ctrl+↑/↓ top/bottom • Ctrl+S save • ←/esc/b cancel")
+	help := helpStyle.Render("Tab next field • Alt+↑/↓ top/bottom • ctrl+s save • d delete • esc/b cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1230,16 +1322,6 @@ func (m Model) renderEditTemplateView() string {
 	// Build form fields
 	var formFields []string
 
-	// ID field (read-only in edit mode)
-	idLabel := labelStyle.Render("ID (read-only):")
-	idValue := ""
-	if m.editMode && m.selectedTemplate != nil {
-		idValue = m.selectedTemplate.ID
-	} else {
-		idValue = m.templateForm.inputs[templateIdField].View()
-	}
-	formFields = append(formFields, idLabel, idValue, "")
-
 	// Version field
 	versionLabel := labelStyle.Render("Version:")
 	formFields = append(formFields, versionLabel, m.templateForm.inputs[templateVersionField].View(), "")
@@ -1261,7 +1343,7 @@ func (m Model) renderEditTemplateView() string {
 	formFields = append(formFields, contentLabel, m.templateForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Ctrl+↑/↓ top/bottom • Ctrl+S save • ←/esc/b cancel")
+	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Alt+↑/↓ top/bottom • Ctrl+S save • d d delete • ←/esc/b cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}

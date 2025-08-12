@@ -105,6 +105,23 @@ func (s *Storage) SavePrompt(prompt *models.Prompt) error {
 	return nil
 }
 
+// DeletePrompt deletes a prompt file from the file system
+func (s *Storage) DeletePrompt(prompt *models.Prompt) error {
+	fullPath := filepath.Join(s.rootPath, prompt.FilePath)
+	
+	// Check if file exists
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return fmt.Errorf("prompt file does not exist: %s", fullPath)
+	}
+	
+	// Delete the file
+	if err := os.Remove(fullPath); err != nil {
+		return fmt.Errorf("failed to delete prompt file: %w", err)
+	}
+	
+	return nil
+}
+
 // SaveTemplate saves a template to the file system
 func (s *Storage) SaveTemplate(template *models.Template) error {
 	fullPath := filepath.Join(s.rootPath, template.FilePath)
@@ -238,7 +255,8 @@ func parsePromptFile(content []byte) (*models.Prompt, error) {
 	for scanner.Scan() {
 		contentLines = append(contentLines, scanner.Text())
 	}
-	prompt.Content = strings.Join(contentLines, "\n")
+	// Join content and trim leading/trailing whitespace
+	prompt.Content = strings.TrimSpace(strings.Join(contentLines, "\n"))
 
 	return &prompt, nil
 }
@@ -273,7 +291,8 @@ func parseTemplateFile(content []byte) (*models.Template, error) {
 	for scanner.Scan() {
 		contentLines = append(contentLines, scanner.Text())
 	}
-	template.Content = strings.Join(contentLines, "\n")
+	// Join content and trim leading/trailing whitespace
+	template.Content = strings.TrimSpace(strings.Join(contentLines, "\n"))
 
 	return &template, nil
 }
@@ -292,10 +311,13 @@ func serializePrompt(prompt *models.Prompt) ([]byte, error) {
 	}
 
 	// Write closing delimiter
-	buf.WriteString("---\n\n")
+	buf.WriteString("---\n")
 
-	// Write content
-	buf.WriteString(prompt.Content)
+	// Write content with proper spacing
+	if prompt.Content != "" {
+		buf.WriteString("\n")
+		buf.WriteString(strings.TrimSpace(prompt.Content))
+	}
 
 	return buf.Bytes(), nil
 }
@@ -315,10 +337,13 @@ func serializeTemplate(template *models.Template) ([]byte, error) {
 	}
 
 	// Write closing delimiter
-	buf.WriteString("---\n\n")
+	buf.WriteString("---\n")
 
-	// Write content
-	buf.WriteString(template.Content)
+	// Write content with proper spacing
+	if template.Content != "" {
+		buf.WriteString("\n")
+		buf.WriteString(strings.TrimSpace(template.Content))
+	}
 
 	return buf.Bytes(), nil
 }
