@@ -56,6 +56,9 @@ func NewCreateFormFromScratch() *CreateForm {
 
 	// Content textarea - completely empty
 	ta := textarea.New()
+	ta.CharLimit = 0 // Remove character limit (0 = unlimited)
+	ta.MaxHeight = 0 // Remove line limit (0 = unlimited)
+	ta.ShowLineNumbers = false // Disable line numbers to prevent double spacing
 	ta.SetWidth(80)
 	ta.SetHeight(10)
 
@@ -96,11 +99,11 @@ func NewCreateForm() *CreateForm {
 	inputs[descriptionField].CharLimit = 255
 	inputs[descriptionField].Width = 60
 
-	// Tags field
+	// Tags field - enhanced with better UX
 	inputs[tagsField] = textinput.New()
-	inputs[tagsField].Placeholder = "tag1, tag2, tag3"
-	inputs[tagsField].CharLimit = 200
-	inputs[tagsField].Width = 40
+	inputs[tagsField].Placeholder = "ai, prompt-engineering, productivity (comma-separated)"
+	inputs[tagsField].CharLimit = 300
+	inputs[tagsField].Width = 60
 
 	// Variables field
 	inputs[variablesField] = textinput.New()
@@ -117,6 +120,9 @@ func NewCreateForm() *CreateForm {
 	// Content textarea
 	ta := textarea.New()
 	ta.Placeholder = "Enter your prompt content here..."
+	ta.CharLimit = 0 // Remove character limit (0 = unlimited)
+	ta.MaxHeight = 0 // Remove line limit (0 = unlimited)
+	ta.ShowLineNumbers = false // Disable line numbers to prevent double spacing
 	ta.SetWidth(80)
 	ta.SetHeight(10)
 
@@ -129,42 +135,94 @@ func NewCreateForm() *CreateForm {
 
 // Update handles form updates
 func (f *CreateForm) Update(msg tea.Msg) tea.Cmd {
-	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle form-level navigation keys
 		switch msg.String() {
-		case "tab", "down":
+		case "tab":
 			f.nextField()
-		case "shift+tab", "up":
+			return nil
+		case "shift+tab":
 			f.prevField()
-		case "enter":
-			if f.focused == contentField {
-				// Let textarea handle enter
-				var cmd tea.Cmd
-				f.textarea, cmd = f.textarea.Update(msg)
-				return cmd
-			} else {
-				f.nextField()
-			}
+			return nil
 		case "ctrl+s":
 			f.submitted = true
 			return nil
+		case "down":
+			// Only handle down for field navigation when NOT in content field
+			if f.focused != contentField {
+				f.nextField()
+				return nil
+			}
+		case "up":
+			// Only handle up for field navigation when NOT in content field
+			if f.focused != contentField {
+				f.prevField()
+				return nil
+			}
+		case "enter":
+			// Only handle enter for field navigation when NOT in content field
+			if f.focused != contentField {
+				f.nextField()
+				return nil
+			}
+		case "ctrl+up", "ctrl+home":
+			// Jump to beginning of content (CTRL+UP or CTRL+HOME)
+			if f.focused == contentField {
+				// Create ctrl+home key message
+				ctrlHomeMsg := tea.KeyMsg{
+					Type: tea.KeyCtrlHome,
+				}
+				var cmd tea.Cmd
+				f.textarea, cmd = f.textarea.Update(ctrlHomeMsg)
+				return cmd
+			}
+		case "ctrl+down", "ctrl+end":
+			// Jump to end of content (CTRL+DOWN or CTRL+END)
+			if f.focused == contentField {
+				// Create ctrl+end key message
+				ctrlEndMsg := tea.KeyMsg{
+					Type: tea.KeyCtrlEnd,
+				}
+				var cmd tea.Cmd
+				f.textarea, cmd = f.textarea.Update(ctrlEndMsg)
+				return cmd
+			}
+		}
+		
+		// For content field, pass ALL other keys directly to textarea
+		// This includes: left, right, up, down, ctrl+home, ctrl+end, alt+left/right, etc.
+		if f.focused == contentField {
+			var cmd tea.Cmd
+			f.textarea, cmd = f.textarea.Update(msg)
+			return cmd
 		}
 	}
 
-	// Update the focused field
-	if f.focused == contentField {
-		var cmd tea.Cmd
-		f.textarea, cmd = f.textarea.Update(msg)
-		cmds = append(cmds, cmd)
-	} else {
+	// Update non-content fields only
+	if f.focused != contentField {
 		var cmd tea.Cmd
 		f.inputs[f.focused], cmd = f.inputs[f.focused].Update(msg)
-		cmds = append(cmds, cmd)
+		return cmd
 	}
 
-	return tea.Batch(cmds...)
+	return nil
+}
+
+// Resize updates form dimensions based on window size
+func (f *CreateForm) Resize(width, height int) {
+	// Calculate available height for textarea
+	// Reserve space for: title (2), form fields (8-10), help text (4), margins (6)
+	reservedHeight := 20
+	availableHeight := height - reservedHeight
+	if availableHeight < 5 {
+		availableHeight = 5 // Minimum height
+	}
+	
+	// Update textarea size
+	f.textarea.SetWidth(width - 10) // Account for padding
+	f.textarea.SetHeight(availableHeight)
 }
 
 // nextField moves to the next form field
@@ -235,6 +293,11 @@ func (f *CreateForm) prevField() {
 	} else {
 		f.inputs[f.focused].Focus()
 	}
+}
+
+// IsInContentField returns true if the content field is currently focused
+func (f *CreateForm) IsInContentField() bool {
+	return f.focused == contentField
 }
 
 // ToPrompt converts form data to a Prompt model
@@ -413,6 +476,9 @@ func NewTemplateFormFromScratch() *TemplateForm {
 
 	// Content textarea - completely empty
 	ta := textarea.New()
+	ta.CharLimit = 0 // Remove character limit (0 = unlimited)
+	ta.MaxHeight = 0 // Remove line limit (0 = unlimited)
+	ta.ShowLineNumbers = false // Disable line numbers to prevent double spacing
 	ta.SetWidth(80)
 	ta.SetHeight(15)
 
@@ -461,6 +527,9 @@ func NewTemplateForm() *TemplateForm {
 	// Content textarea
 	ta := textarea.New()
 	ta.Placeholder = "Enter template content with {{slots}}..."
+	ta.CharLimit = 0 // Remove character limit (0 = unlimited)
+	ta.MaxHeight = 0 // Remove line limit (0 = unlimited)
+	ta.ShowLineNumbers = false // Disable line numbers to prevent double spacing
 	ta.SetWidth(80)
 	ta.SetHeight(15)
 
@@ -473,41 +542,94 @@ func NewTemplateForm() *TemplateForm {
 
 // Update handles template form updates
 func (f *TemplateForm) Update(msg tea.Msg) tea.Cmd {
-	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle form-level navigation keys
 		switch msg.String() {
-		case "tab", "down":
+		case "tab":
 			f.nextField()
-		case "shift+tab", "up":
+			return nil
+		case "shift+tab":
 			f.prevField()
-		case "enter":
-			if f.focused == templateContentField {
-				var cmd tea.Cmd
-				f.textarea, cmd = f.textarea.Update(msg)
-				return cmd
-			} else {
-				f.nextField()
-			}
+			return nil
 		case "ctrl+s":
 			f.submitted = true
 			return nil
+		case "down":
+			// Only handle down for field navigation when NOT in content field
+			if f.focused != templateContentField {
+				f.nextField()
+				return nil
+			}
+		case "up":
+			// Only handle up for field navigation when NOT in content field
+			if f.focused != templateContentField {
+				f.prevField()
+				return nil
+			}
+		case "enter":
+			// Only handle enter for field navigation when NOT in content field
+			if f.focused != templateContentField {
+				f.nextField()
+				return nil
+			}
+		case "ctrl+up", "ctrl+home":
+			// Jump to beginning of content (CTRL+UP or CTRL+HOME)
+			if f.focused == templateContentField {
+				// Create ctrl+home key message
+				ctrlHomeMsg := tea.KeyMsg{
+					Type: tea.KeyCtrlHome,
+				}
+				var cmd tea.Cmd
+				f.textarea, cmd = f.textarea.Update(ctrlHomeMsg)
+				return cmd
+			}
+		case "ctrl+down", "ctrl+end":
+			// Jump to end of content (CTRL+DOWN or CTRL+END)
+			if f.focused == templateContentField {
+				// Create ctrl+end key message
+				ctrlEndMsg := tea.KeyMsg{
+					Type: tea.KeyCtrlEnd,
+				}
+				var cmd tea.Cmd
+				f.textarea, cmd = f.textarea.Update(ctrlEndMsg)
+				return cmd
+			}
+		}
+		
+		// For content field, pass ALL other keys directly to textarea
+		// This includes: left, right, up, down, ctrl+home, ctrl+end, alt+left/right, etc.
+		if f.focused == templateContentField {
+			var cmd tea.Cmd
+			f.textarea, cmd = f.textarea.Update(msg)
+			return cmd
 		}
 	}
 
-	// Update the focused field
-	if f.focused == templateContentField {
-		var cmd tea.Cmd
-		f.textarea, cmd = f.textarea.Update(msg)
-		cmds = append(cmds, cmd)
-	} else {
+	// Update non-content fields only
+	if f.focused != templateContentField {
 		var cmd tea.Cmd
 		f.inputs[f.focused], cmd = f.inputs[f.focused].Update(msg)
-		cmds = append(cmds, cmd)
+		return cmd
 	}
 
-	return tea.Batch(cmds...)
+	return nil
+}
+
+// Resize updates template form dimensions based on window size
+func (f *TemplateForm) Resize(width, height int) {
+	// Calculate available height for textarea
+	// Reserve space for: title (2), form fields (12-14), help text (4), margins (6)
+	reservedHeight := 24
+	availableHeight := height - reservedHeight
+	if availableHeight < 5 {
+		availableHeight = 5 // Minimum height
+	}
+	
+	// Update textarea size
+	f.textarea.SetWidth(width - 10) // Account for padding
+	f.textarea.SetHeight(availableHeight)
 }
 
 // nextField moves to the next form field
@@ -544,6 +666,11 @@ func (f *TemplateForm) prevField() {
 	} else {
 		f.inputs[f.focused].Focus()
 	}
+}
+
+// IsInContentField returns true if the content field is currently focused
+func (f *TemplateForm) IsInContentField() bool {
+	return f.focused == templateContentField
 }
 
 // ToTemplate converts form data to a Template model

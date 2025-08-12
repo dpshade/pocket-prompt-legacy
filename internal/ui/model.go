@@ -272,6 +272,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Viewport takes full width for detail view
 			m.viewport.Width = msg.Width - 4  // Padding
 			m.viewport.Height = msg.Height - 8 // Reserve space for title, metadata, and help
+		case ViewCreateFromScratch, ViewCreateFromTemplate, ViewEditPrompt:
+			if m.createForm != nil {
+				m.createForm.Resize(msg.Width, msg.Height)
+			}
+		case ViewEditTemplate:
+			if m.templateForm != nil {
+				m.templateForm.Resize(msg.Width, msg.Height)
+			}
 		}
 
 		// Update glamour renderer width for detail view
@@ -424,9 +432,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.createForm = nil
 				m.selectForm = nil
 				return m, nil
-			case ViewEditPrompt, ViewEditTemplate:
+			case ViewEditPrompt:
+				// Don't navigate away if user is typing in content field
+				if m.createForm != nil && m.createForm.IsInContentField() {
+					// Let the form handle left arrow for cursor movement
+					break
+				}
 				m.viewMode = ViewLibrary
 				m.createForm = nil
+				m.editMode = false
+				return m, nil
+			case ViewEditTemplate:
+				// Don't navigate away if user is typing in content field
+				if m.templateForm != nil && m.templateForm.IsInContentField() {
+					// Let the form handle left arrow for cursor movement
+					break
+				}
+				m.viewMode = ViewLibrary
 				m.templateForm = nil
 				m.editMode = false
 				return m, nil
@@ -978,7 +1000,7 @@ func (m Model) renderCreateFromScratchView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab/↓ next field • Shift+Tab/↑ prev field • Ctrl+S save • ←/esc/b cancel")
+	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Ctrl+↑/↓ top/bottom • Ctrl+S save • ←/esc/b cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1148,7 +1170,8 @@ func (m Model) renderEditPromptView() string {
 
 	// Tags field
 	tagsLabel := labelStyle.Render("Tags:")
-	formFields = append(formFields, tagsLabel, m.createForm.inputs[tagsField].View(), "")
+	tagsHelp := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  Use comma-separated values for organization and discovery")
+	formFields = append(formFields, tagsLabel, m.createForm.inputs[tagsField].View(), tagsHelp, "")
 
 	// Variables field
 	variablesLabel := labelStyle.Render("Variables:")
@@ -1163,7 +1186,7 @@ func (m Model) renderEditPromptView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab/↓ next field • Shift+Tab/↑ prev field • Ctrl+S save • ←/esc/b cancel")
+	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Ctrl+↑/↓ top/bottom • Ctrl+S save • ←/esc/b cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1238,7 +1261,7 @@ func (m Model) renderEditTemplateView() string {
 	formFields = append(formFields, contentLabel, m.templateForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab/↓ next field • Shift+Tab/↑ prev field • Ctrl+S save • ←/esc/b cancel")
+	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Ctrl+↑/↓ top/bottom • Ctrl+S save • ←/esc/b cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}

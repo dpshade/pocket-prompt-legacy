@@ -14,7 +14,10 @@
       "Bash(git push:*)",
       "Bash(git rm:*)",
       "Bash(git add:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(cd:*)",
+      "Bash(true)",
+      "Bash(cd:*)"
     ],
     "deny": []
   }
