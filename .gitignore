@@ -19,9 +19,11 @@ go.work
 
 # Pocket Prompt specific
 pocket-prompt
+pocket-prompt-test
 *.db*
 log.md
 .pocket-prompt/
+test-library/
 
 # OS-generated files
 .DS_Store

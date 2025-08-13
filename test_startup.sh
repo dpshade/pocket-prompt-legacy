@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Test startup performance with async loading
-cd /Users/dps/Developer/My\ Repos/pocket-prompt
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "Testing startup performance..."
 export POCKET_PROMPT_DIR="$(pwd)/test-library"

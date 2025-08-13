@@ -36,7 +36,10 @@
       "Bash(time:*)",
       "Bash(grep:*)",
       "Bash(git checkout:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git branch:*)",
+      "Bash(gh api:*)"
     ],
     "deny": []
   }
