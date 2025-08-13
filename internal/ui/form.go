@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/models"
 )
 
 // generateIDFromTitle creates a URL-safe ID from a title

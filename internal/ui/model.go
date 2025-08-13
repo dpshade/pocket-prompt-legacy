@@ -11,10 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dylanshade/pocket-prompt/internal/clipboard"
-	"github.com/dylanshade/pocket-prompt/internal/models"
-	"github.com/dylanshade/pocket-prompt/internal/renderer"
-	"github.com/dylanshade/pocket-prompt/internal/service"
+	"github.com/dpshade/pocket-prompt/internal/clipboard"
+	"github.com/dpshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/renderer"
+	"github.com/dpshade/pocket-prompt/internal/service"
 )
 
 // Commands for async operations

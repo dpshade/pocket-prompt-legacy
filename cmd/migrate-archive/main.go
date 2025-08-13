@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dylanshade/pocket-prompt/internal/models"
-	"github.com/dylanshade/pocket-prompt/internal/service"
+	"github.com/dpshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/service"
 )
 
 func main() {

@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/models"
 )
 
 // BooleanSearchModal provides a modal interface for boolean search

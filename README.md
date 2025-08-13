@@ -14,16 +14,38 @@ A unified place to keep LLM context - a single-binary, portable prompt interface
 
 ## Installation
 
-### From Source
+### One-Line Installation (Recommended)
 
 ```bash
-go install github.com/dylanshade/pocket-prompt@latest
+curl -fsSL https://raw.githubusercontent.com/dpshade/pocket-prompt/master/install.sh | bash
 ```
 
-### Build Locally
+### Alternative Installation Methods
 
+#### Using Go (if you have Go installed)
 ```bash
-git clone https://github.com/dylanshade/pocket-prompt.git
+go install github.com/dpshade/pocket-prompt@latest
+```
+
+#### Manual Download (Linux/macOS)
+```bash
+# Download and install latest release
+curl -s https://api.github.com/repos/dpshade/pocket-prompt/releases/latest | \
+  grep "browser_download_url.*$(uname -s)_$(uname -m)" | \
+  cut -d '"' -f 4 | \
+  xargs curl -L -o pocket-prompt && \
+  chmod +x pocket-prompt && \
+  sudo mv pocket-prompt /usr/local/bin/
+```
+
+#### Using Homebrew (coming soon)
+```bash
+# brew install dpshade/tap/pocket-prompt
+```
+
+#### Build from Source
+```bash
+git clone https://github.com/dpshade/pocket-prompt.git
 cd pocket-prompt
 go build -o pocket-prompt
 ```

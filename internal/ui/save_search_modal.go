@@ -5,7 +5,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/models"
 )
 
 // SaveSearchModal provides a modal for saving boolean searches

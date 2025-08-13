@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/models"
 )
 
 // Renderer handles prompt rendering with variable substitution

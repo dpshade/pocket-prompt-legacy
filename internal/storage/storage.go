@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/models"
 	"gopkg.in/yaml.v3"
 )
 

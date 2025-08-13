@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dylanshade/pocket-prompt/internal/git"
-	"github.com/dylanshade/pocket-prompt/internal/models"
-	"github.com/dylanshade/pocket-prompt/internal/storage"
+	"github.com/dpshade/pocket-prompt/internal/git"
+	"github.com/dpshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/storage"
 	"github.com/sahilm/fuzzy"
 )
 

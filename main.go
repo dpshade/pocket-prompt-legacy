@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dylanshade/pocket-prompt/internal/service"
-	"github.com/dylanshade/pocket-prompt/internal/ui"
+	"github.com/dpshade/pocket-prompt/internal/service"
+	"github.com/dpshade/pocket-prompt/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

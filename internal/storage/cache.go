@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dylanshade/pocket-prompt/internal/models"
+	"github.com/dpshade/pocket-prompt/internal/models"
 )
 
 // PromptMetadata represents cached metadata for a prompt
