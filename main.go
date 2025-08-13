@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dpshade/pocket-prompt/internal/cli"
 	"github.com/dpshade/pocket-prompt/internal/service"
 	"github.com/dpshade/pocket-prompt/internal/ui"
 
@@ -42,6 +43,19 @@ func main() {
 		return
 	}
 
+	// Check if we have command line arguments for CLI mode
+	args := flag.Args()
+	if len(args) > 0 {
+		// CLI mode - execute command and exit
+		cliHandler := cli.NewCLI(svc)
+		if err := cliHandler.ExecuteCommand(args); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// No arguments provided - start TUI mode
 	// Initialize TUI
 	model, err := ui.NewModel(svc)
 	if err != nil {
