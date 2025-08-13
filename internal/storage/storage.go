@@ -18,6 +18,7 @@ import (
 // Storage handles all file system operations for prompts, templates, and packs
 type Storage struct {
 	rootPath string
+	cache    *MetadataCache
 }
 
 // NewStorage creates a new storage instance
@@ -30,7 +31,16 @@ func NewStorage(rootPath string) (*Storage, error) {
 		rootPath = filepath.Join(homeDir, ".pocket-prompt")
 	}
 
-	return &Storage{rootPath: rootPath}, nil
+	cache := NewMetadataCache(rootPath)
+	if err := cache.Load(); err != nil {
+		// Log error but don't fail - cache is optional
+		fmt.Fprintf(os.Stderr, "Warning: failed to load metadata cache: %v\n", err)
+	}
+
+	return &Storage{
+		rootPath: rootPath,
+		cache:    cache,
+	}, nil
 }
 
 // InitLibrary creates the directory structure for a prompt library
@@ -38,6 +48,7 @@ func (s *Storage) InitLibrary() error {
 	dirs := []string{
 		s.rootPath,
 		filepath.Join(s.rootPath, "prompts"),
+		filepath.Join(s.rootPath, "archive"),
 		filepath.Join(s.rootPath, "templates"),
 		filepath.Join(s.rootPath, "packs"),
 		filepath.Join(s.rootPath, ".pocket-prompt"),
@@ -51,6 +62,11 @@ func (s *Storage) InitLibrary() error {
 	}
 
 	return nil
+}
+
+// GetBaseDir returns the root path of the storage
+func (s *Storage) GetBaseDir() string {
+	return s.rootPath
 }
 
 // LoadPrompt loads a prompt from a markdown file with YAML frontmatter
@@ -146,11 +162,19 @@ func (s *Storage) SaveTemplate(template *models.Template) error {
 	return nil
 }
 
-// ListPrompts returns all prompts in the library
+// ListPrompts returns all prompts in the library (excluding archived prompts)
 func (s *Storage) ListPrompts() ([]*models.Prompt, error) {
-	promptsDir := filepath.Join(s.rootPath, "prompts")
+	return s.listPromptsFromDir("prompts")
+}
+
+// listPromptsFromDir returns prompts from a specific directory with caching
+func (s *Storage) listPromptsFromDir(dir string) ([]*models.Prompt, error) {
+	promptsDir := filepath.Join(s.rootPath, dir)
 	
 	var prompts []*models.Prompt
+	existingFiles := make(map[string]bool)
+	cacheModified := false
+	
 	err := filepath.Walk(promptsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -158,19 +182,60 @@ func (s *Storage) ListPrompts() ([]*models.Prompt, error) {
 
 		if !info.IsDir() && strings.HasSuffix(path, ".md") {
 			relPath, _ := filepath.Rel(s.rootPath, path)
+			existingFiles[relPath] = true
+			
+			// Try to get from cache first
+			if cached, valid := s.cache.Get(relPath, info); valid {
+				prompts = append(prompts, cached.ToPrompt())
+				return nil
+			}
+			
+			// Cache miss - load and parse the prompt
 			prompt, err := s.LoadPrompt(relPath)
 			if err != nil {
 				// Log error but continue walking
 				fmt.Fprintf(os.Stderr, "Warning: failed to load prompt %s: %v\n", relPath, err)
 				return nil
 			}
+			
+			// Cache the loaded prompt metadata
+			s.cache.Set(filepath.Join(s.rootPath, relPath), info, prompt)
+			cacheModified = true
+			
 			prompts = append(prompts, prompt)
 		}
 
 		return nil
 	})
+	
+	// Cleanup cache entries for deleted files
+	s.cache.Cleanup(existingFiles)
+	
+	// Save cache if it was modified
+	if cacheModified {
+		if err := s.cache.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save metadata cache: %v\n", err)
+		}
+	}
 
 	return prompts, err
+}
+
+// ListArchivedPrompts returns all archived prompts
+func (s *Storage) ListArchivedPrompts() ([]*models.Prompt, error) {
+	// Check if archive directory exists
+	archiveDir := filepath.Join(s.rootPath, "archive")
+	if _, err := os.Stat(archiveDir); os.IsNotExist(err) {
+		return []*models.Prompt{}, nil // Return empty slice if archive doesn't exist
+	}
+	
+	return s.listPromptsFromDir("archive")
+}
+
+// DeleteTemplate deletes a template file
+func (s *Storage) DeleteTemplate(template *models.Template) error {
+	fullPath := filepath.Join(s.rootPath, template.FilePath)
+	return os.Remove(fullPath)
 }
 
 // LoadTemplate loads a template from a markdown file

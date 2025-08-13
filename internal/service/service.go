@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dylanshade/pocket-prompt/internal/git"
 	"github.com/dylanshade/pocket-prompt/internal/models"
 	"github.com/dylanshade/pocket-prompt/internal/storage"
 	"github.com/sahilm/fuzzy"
@@ -15,8 +16,10 @@ import (
 
 // Service provides business logic for prompt management
 type Service struct {
-	storage *storage.Storage
-	prompts []*models.Prompt // Cached prompts for fast access
+	storage       *storage.Storage
+	prompts       []*models.Prompt // Cached prompts for fast access
+	gitSync       *git.GitSync     // Git synchronization
+	savedSearches *storage.SavedSearchesStorage // Saved boolean searches
 }
 
 // NewService creates a new service instance
@@ -28,9 +31,26 @@ func NewService() (*Service, error) {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
+	// Initialize git sync
+	gitSync := git.NewGitSync(store.GetBaseDir())
+	// Don't block on git initialization - it will be done in background
+
+	// Initialize saved searches storage
+	savedSearches := storage.NewSavedSearchesStorage(store.GetBaseDir())
+
 	svc := &Service{
-		storage: store,
+		storage:       store,
+		gitSync:       gitSync,
+		savedSearches: savedSearches,
 	}
+
+	// Initialize git sync in background to avoid blocking startup
+	go func() {
+		if err := gitSync.Initialize(); err != nil {
+			// Git sync initialization failure is not fatal
+			// The service can still work without git sync
+		}
+	}()
 
 	// NOTE: Removed eager loading for faster startup
 	// Prompts will be loaded on-demand or asynchronously
@@ -64,6 +84,19 @@ func (s *Service) LoadPromptsAsync() func() ([]*models.Prompt, bool, error) {
 			return nil, false, nil // still loading
 		}
 	}
+}
+
+// LoadPromptsIncremental loads prompts incrementally, calling callback with batches
+func (s *Service) LoadPromptsIncremental(callback func([]*models.Prompt, bool, error)) {
+	go func() {
+		// Load prompts in the background
+		prompts, err := s.storage.ListPrompts()
+		if err == nil {
+			s.prompts = prompts
+		}
+		// Send final result
+		callback(prompts, true, err)
+	}()
 }
 
 // InitLibrary initializes a new prompt library
@@ -166,6 +199,15 @@ func (s *Service) CreatePrompt(prompt *models.Prompt) error {
 		return err
 	}
 
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("Create prompt: %s", prompt.Title())); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			// The prompt was saved successfully to local storage
+			fmt.Printf("Warning: Git sync failed after creating prompt: %v\n", err)
+		}
+	}
+
 	// Reload prompts cache
 	return s.loadPrompts()
 }
@@ -202,6 +244,14 @@ func (s *Service) UpdatePrompt(prompt *models.Prompt) error {
 		return err
 	}
 
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("Update prompt: %s (v%s)", prompt.Title(), prompt.Version)); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			fmt.Printf("Warning: Git sync failed after updating prompt: %v\n", err)
+		}
+	}
+
 	// Reload prompts cache
 	return s.loadPrompts()
 }
@@ -216,6 +266,14 @@ func (s *Service) DeletePrompt(id string) error {
 	// Delete the file from storage
 	if err := s.storage.DeletePrompt(prompt); err != nil {
 		return fmt.Errorf("failed to delete prompt file: %w", err)
+	}
+
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("Delete prompt: %s", prompt.Title())); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			fmt.Printf("Warning: Git sync failed after deleting prompt: %v\n", err)
+		}
 	}
 
 	// Reload prompts cache
@@ -321,10 +379,71 @@ func (s *Service) SaveTemplate(template *models.Template) error {
 	}
 
 	// Save to storage
-	return s.storage.SaveTemplate(template)
+	if err := s.storage.SaveTemplate(template); err != nil {
+		return err
+	}
+
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		action := "Create"
+		if existing != nil {
+			action = "Update"
+		}
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("%s template: %s", action, template.Name)); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			fmt.Printf("Warning: Git sync failed after saving template: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
-// archivePromptByTag archives a prompt by adding the 'archive' tag and updating filename
+// DeleteTemplate deletes a template by ID
+func (s *Service) DeleteTemplate(id string) error {
+	template, err := s.GetTemplate(id)
+	if err != nil {
+		return err
+	}
+
+	// Delete the file from storage
+	if err := s.storage.DeleteTemplate(template); err != nil {
+		return fmt.Errorf("failed to delete template file: %w", err)
+	}
+
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("Delete template: %s", template.Name)); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			fmt.Printf("Warning: Git sync failed after deleting template: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// GitSync methods for UI integration
+
+// IsGitSyncEnabled returns true if git sync is available and enabled
+func (s *Service) IsGitSyncEnabled() bool {
+	return s.gitSync.IsEnabled()
+}
+
+// GetGitSyncStatus returns the current git sync status
+func (s *Service) GetGitSyncStatus() (string, error) {
+	return s.gitSync.GetStatus()
+}
+
+// EnableGitSync enables git synchronization
+func (s *Service) EnableGitSync() {
+	s.gitSync.Enable()
+}
+
+// DisableGitSync disables git synchronization
+func (s *Service) DisableGitSync() {
+	s.gitSync.Disable()
+}
+
+// archivePromptByTag archives a prompt by moving it to the archive folder
 func (s *Service) archivePromptByTag(prompt *models.Prompt) error {
 	// Create a copy of the prompt for archiving
 	archivedPrompt := *prompt
@@ -341,11 +460,11 @@ func (s *Service) archivePromptByTag(prompt *models.Prompt) error {
 		archivedPrompt.Tags = append(archivedPrompt.Tags, "archive")
 	}
 	
-	// Update filename to include version for archived copy
+	// Move to archive folder with version in filename
 	archiveFilename := fmt.Sprintf("%s-v%s.md", prompt.ID, prompt.Version)
-	archivedPrompt.FilePath = filepath.Join("prompts", archiveFilename)
+	archivedPrompt.FilePath = filepath.Join("archive", archiveFilename)
 	
-	// Save the archived version
+	// Save the archived version to archive folder
 	return s.storage.SavePrompt(&archivedPrompt)
 }
 
@@ -374,30 +493,91 @@ func (s *Service) incrementVersion(currentVersion string) (string, error) {
 	return fmt.Sprintf("%s.%s.%d", parts[0], parts[1], patch+1), nil
 }
 
-// isArchived checks if a prompt has the 'archive' tag
+// isArchived checks if a prompt is in the archive folder
 func (s *Service) isArchived(prompt *models.Prompt) bool {
-	for _, tag := range prompt.Tags {
-		if tag == "archive" {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(prompt.FilePath, "archive/")
 }
 
-// ListArchivedPrompts returns only archived prompts
+// ListArchivedPrompts returns only archived prompts from the archive folder
 func (s *Service) ListArchivedPrompts() ([]*models.Prompt, error) {
-	if len(s.prompts) == 0 {
-		if err := s.loadPrompts(); err != nil {
-			return nil, err
+	return s.storage.ListArchivedPrompts()
+}
+
+// Boolean Search Methods
+
+// SearchPromptsByBooleanExpression searches prompts using a boolean expression
+func (s *Service) SearchPromptsByBooleanExpression(expression *models.BooleanExpression) ([]*models.Prompt, error) {
+	prompts, err := s.ListPrompts()
+	if err != nil {
+		return nil, err
+	}
+
+	if expression == nil {
+		return prompts, nil
+	}
+
+	var results []*models.Prompt
+	for _, prompt := range prompts {
+		if expression.Evaluate(prompt.Tags) {
+			results = append(results, prompt)
 		}
 	}
-	
-	// Filter for archived prompts only
-	var archivedPrompts []*models.Prompt
-	for _, prompt := range s.prompts {
-		if s.isArchived(prompt) {
-			archivedPrompts = append(archivedPrompts, prompt)
+
+	return results, nil
+}
+
+// Saved Search Methods
+
+// ListSavedSearches returns all saved boolean searches
+func (s *Service) ListSavedSearches() ([]models.SavedSearch, error) {
+	return s.savedSearches.LoadSavedSearches()
+}
+
+// GetSavedSearch retrieves a saved search by name
+func (s *Service) GetSavedSearch(name string) (*models.SavedSearch, error) {
+	return s.savedSearches.GetSavedSearch(name)
+}
+
+// SaveBooleanSearch saves a new boolean search
+func (s *Service) SaveBooleanSearch(search models.SavedSearch) error {
+	if err := s.savedSearches.AddSavedSearch(search); err != nil {
+		return err
+	}
+
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("Save boolean search: %s", search.Name)); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			fmt.Printf("Warning: Git sync failed after saving boolean search: %v\n", err)
 		}
 	}
-	return archivedPrompts, nil
+
+	return nil
+}
+
+// DeleteSavedSearch removes a saved search by name
+func (s *Service) DeleteSavedSearch(name string) error {
+	if err := s.savedSearches.DeleteSavedSearch(name); err != nil {
+		return err
+	}
+
+	// Sync to git if enabled
+	if s.gitSync.IsEnabled() {
+		if err := s.gitSync.SyncChanges(fmt.Sprintf("Delete boolean search: %s", name)); err != nil {
+			// Don't fail the operation if git sync fails, just log it
+			fmt.Printf("Warning: Git sync failed after deleting boolean search: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// ExecuteSavedSearch executes a saved search by name
+func (s *Service) ExecuteSavedSearch(name string) ([]*models.Prompt, error) {
+	savedSearch, err := s.GetSavedSearch(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.SearchPromptsByBooleanExpression(savedSearch.Expression)
 }

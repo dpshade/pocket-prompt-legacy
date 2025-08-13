@@ -41,32 +41,33 @@ func (p Prompt) Title() string {
 
 // Description satisfies the list.Item interface  
 func (p Prompt) Description() string {
-	desc := ""
+	var parts []string
+	
+	// Add summary if available
 	if p.Summary != "" {
-		desc = p.Summary
+		parts = append(parts, p.Summary)
 	}
 	
 	// Add last edited info
 	if !p.UpdatedAt.IsZero() {
-		lastEdited := " • Last edited: " + p.UpdatedAt.Format("2006-01-02 15:04")
-		if desc == "" {
-			desc = lastEdited[3:] // Remove the " • " prefix when it's the first item
-		} else {
-			desc += lastEdited
-		}
+		parts = append(parts, "Last edited: " + p.UpdatedAt.Format("2006-01-02 15:04"))
 	}
 	
 	// Add tags if available
 	if len(p.Tags) > 0 {
-		tagsStr := " • Tags: " + joinTags(p.Tags)
-		if desc == "" {
-			desc = tagsStr[3:] // Remove the " • " prefix when it's the first item
-		} else {
-			desc += tagsStr
-		}
+		parts = append(parts, "Tags: " + joinTags(p.Tags))
 	}
 	
-	return desc
+	// Join all parts with " • " separator
+	result := ""
+	for i, part := range parts {
+		if i > 0 {
+			result += " • "
+		}
+		result += part
+	}
+	
+	return result
 }
 
 func joinTags(tags []string) string {

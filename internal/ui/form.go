@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -9,6 +10,37 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dylanshade/pocket-prompt/internal/models"
 )
+
+// generateIDFromTitle creates a URL-safe ID from a title
+func generateIDFromTitle(title string) string {
+	if title == "" {
+		return "untitled-prompt"
+	}
+	
+	// Convert to lowercase
+	id := strings.ToLower(title)
+	
+	// Replace spaces and special characters with hyphens
+	reg := regexp.MustCompile(`[^a-z0-9]+`)
+	id = reg.ReplaceAllString(id, "-")
+	
+	// Remove leading and trailing hyphens
+	id = strings.Trim(id, "-")
+	
+	// Ensure it's not empty
+	if id == "" {
+		return "untitled-prompt"
+	}
+	
+	// Limit length to 50 characters
+	if len(id) > 50 {
+		id = id[:50]
+		// Remove trailing hyphen if trimming created one
+		id = strings.TrimSuffix(id, "-")
+	}
+	
+	return id
+}
 
 // CreateForm handles prompt creation
 type CreateForm struct {
@@ -34,23 +66,37 @@ const (
 func NewCreateFormFromScratch() *CreateForm {
 	inputs := make([]textinput.Model, 6) // Reduced from 7 after removing variables field
 
-	// ID field - completely empty
+	// ID field - will be auto-generated from title
 	inputs[idField] = textinput.New()
-	inputs[idField].Focus()
 	inputs[idField].CharLimit = 50
 	inputs[idField].Width = 40
 
-	// Title field - completely empty
+	// Version field - start focused here
+	inputs[versionField] = textinput.New()
+	inputs[versionField].SetValue("1.0.0") // Default version
+	inputs[versionField].Focus()
+	inputs[versionField].CharLimit = 20
+	inputs[versionField].Width = 20
+
+	// Title field
 	inputs[titleField] = textinput.New()
 	inputs[titleField].CharLimit = 100
 	inputs[titleField].Width = 40
 
-	// Initialize other fields as empty but unused
-	for i := versionField; i <= templateRefField; i++ {
-		if i != titleField { // Skip title field as it's already initialized
-			inputs[i] = textinput.New()
-		}
-	}
+	// Description field
+	inputs[descriptionField] = textinput.New()
+	inputs[descriptionField].CharLimit = 255
+	inputs[descriptionField].Width = 60
+
+	// Tags field
+	inputs[tagsField] = textinput.New()
+	inputs[tagsField].CharLimit = 200
+	inputs[tagsField].Width = 60
+
+	// Template reference field
+	inputs[templateRefField] = textinput.New()
+	inputs[templateRefField].CharLimit = 100
+	inputs[templateRefField].Width = 40
 
 	// Content textarea - completely empty
 	ta := textarea.New()
@@ -63,7 +109,7 @@ func NewCreateFormFromScratch() *CreateForm {
 	return &CreateForm{
 		inputs:      inputs,
 		textarea:    ta,
-		focused:     0,
+		focused:     versionField, // Start with version field focused
 		fromScratch: true,
 	}
 }
@@ -226,16 +272,22 @@ func (f *CreateForm) nextField() {
 	}
 	
 	if f.fromScratch {
-		// Simplified navigation: ID -> Title -> Content
+		// Navigation for scratch form: Version -> Title -> Description -> Tags -> Template Ref -> Content
 		switch f.focused {
-		case idField:
+		case versionField:
 			f.focused = titleField
 		case titleField:
+			f.focused = descriptionField
+		case descriptionField:
+			f.focused = tagsField
+		case tagsField:
+			f.focused = templateRefField
+		case templateRefField:
 			f.focused = contentField
 		case contentField:
-			f.focused = idField
+			f.focused = versionField
 		default:
-			f.focused = idField
+			f.focused = versionField // Fallback to version field
 		}
 	} else {
 		// Full form navigation
@@ -261,16 +313,22 @@ func (f *CreateForm) prevField() {
 	}
 	
 	if f.fromScratch {
-		// Simplified navigation: Content -> Title -> ID
+		// Navigation for scratch form: Content -> Template Ref -> Tags -> Description -> Title -> Version
 		switch f.focused {
-		case idField:
+		case versionField:
 			f.focused = contentField
 		case titleField:
-			f.focused = idField
-		case contentField:
+			f.focused = versionField
+		case descriptionField:
 			f.focused = titleField
+		case tagsField:
+			f.focused = descriptionField
+		case templateRefField:
+			f.focused = tagsField
+		case contentField:
+			f.focused = templateRefField
 		default:
-			f.focused = idField
+			f.focused = versionField // Fallback to version field
 		}
 	} else {
 		// Full form navigation
@@ -292,22 +350,66 @@ func (f *CreateForm) IsInContentField() bool {
 	return f.focused == contentField
 }
 
+// IsInTextInputField returns true if any text input field (not just content) is currently focused
+// This includes all textinput fields and the textarea
+func (f *CreateForm) IsInTextInputField() bool {
+	// All fields are text input fields
+	return true
+}
+
+// GetFocusedFieldType returns the type of currently focused field for debugging
+func (f *CreateForm) GetFocusedFieldType() string {
+	switch f.focused {
+	case idField:
+		return "id"
+	case versionField:
+		return "version"
+	case titleField:
+		return "title"
+	case descriptionField:
+		return "description"
+	case tagsField:
+		return "tags"
+	case templateRefField:
+		return "templateRef"
+	case contentField:
+		return "content"
+	default:
+		return "unknown"
+	}
+}
+
 // ToPrompt converts form data to a Prompt model
 func (f *CreateForm) ToPrompt() *models.Prompt {
 	now := time.Now()
 	
 	if f.fromScratch {
-		// Simplified form: only use ID, Title, and Content
+		// From scratch form: auto-generate ID from title, use all form fields
+		title := f.inputs[titleField].Value()
+		id := generateIDFromTitle(title)
+		
+		// Parse tags from comma-separated string
+		tags := []string{}
+		if f.inputs[tagsField].Value() != "" {
+			tagList := strings.Split(f.inputs[tagsField].Value(), ",")
+			for _, tag := range tagList {
+				trimmed := strings.TrimSpace(tag)
+				if trimmed != "" {
+					tags = append(tags, trimmed)
+				}
+			}
+		}
+		
 		return &models.Prompt{
-			ID:        f.inputs[idField].Value(),
-			Version:   "1.0.0", // Default version for scratch forms
-			Name:      f.inputs[titleField].Value(),
-			Summary:   "", // Empty summary for scratch forms
-			Tags:      []string{}, // No tags for scratch forms
-			TemplateRef: "", // No template reference for scratch forms
-			CreatedAt: now,
-			UpdatedAt: now,
-			Content:   f.textarea.Value(),
+			ID:          id,
+			Version:     f.inputs[versionField].Value(),
+			Name:        title,
+			Summary:     f.inputs[descriptionField].Value(),
+			Tags:        tags,
+			TemplateRef: f.inputs[templateRefField].Value(),
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			Content:     f.textarea.Value(),
 		}
 	}
 	
@@ -623,6 +725,12 @@ func (f *TemplateForm) prevField() {
 // IsInContentField returns true if the content field is currently focused
 func (f *TemplateForm) IsInContentField() bool {
 	return f.focused == templateContentField
+}
+
+// IsInTextInputField returns true if any text input field (not just content) is currently focused
+func (f *TemplateForm) IsInTextInputField() bool {
+	// All fields are text input fields
+	return true
 }
 
 // ToTemplate converts form data to a Template model
