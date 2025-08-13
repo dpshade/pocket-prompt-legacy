@@ -202,31 +202,25 @@ func (m *BooleanSearchModal) View() string {
 		return ""
 	}
 
-	// Modal styles
+	// Modal styles - use terminal default colors
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
 		Padding(1, 2).
-		Width(80).
-		Background(lipgloss.Color("235"))
+		Width(80)
 
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
 		Bold(true).
 		MarginBottom(1)
 
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
 		Italic(true).
 		MarginTop(1)
 
 	resultStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
 		MarginTop(1)
 
 	selectedResultStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("62")).
+		Reverse(true).
 		Bold(true)
 
 	var content []string
@@ -246,7 +240,6 @@ func (m *BooleanSearchModal) View() string {
 			tagsPreview += "..."
 		}
 		tagHintStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
 			Italic(true)
 		content = append(content, tagHintStyle.Render("Available tags: "+tagsPreview))
 	}
@@ -257,8 +250,7 @@ func (m *BooleanSearchModal) View() string {
 	// Current expression
 	if m.expression != nil {
 		exprStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Background(lipgloss.Color("236")).
+			Reverse(true).
 			Padding(0, 1)
 		content = append(content, "Expression: "+exprStyle.Render(m.expression.String()))
 	}
@@ -293,8 +285,7 @@ func (m *BooleanSearchModal) View() string {
 	// Save prompt if requested
 	if m.saveRequested {
 		savePromptStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15")).
-			Background(lipgloss.Color("63")).
+			Reverse(true).
 			Bold(true).
 			Padding(0, 1)
 		content = append(content, savePromptStyle.Render("💾 Enter name to save this search (or Esc to cancel):"))

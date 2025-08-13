@@ -132,6 +132,7 @@ type Model struct {
 
 	// Modal state
 	showGHSyncInfo bool
+	showHelpModal  bool
 	modalContent   string // Plain text content for copying
 	
 	// Git sync state
@@ -279,8 +280,16 @@ func NewModel(svc *service.Service) (*Model, error) {
 	l := list.New(items, list.NewDefaultDelegate(), 80, 20) // Default size, will be updated on first WindowSizeMsg
 	l.Title = ""  // We'll handle title in the view
 	l.SetShowStatusBar(false) // We'll handle status in our custom view
-	l.SetFilteringEnabled(false) // Disable filtering until loaded
+	l.SetFilteringEnabled(true) // Enable filtering from start
 	l.SetShowHelp(false) // We'll handle help text ourselves
+	
+	// Set up the list's key map to use our preferred keys
+	keyMap := list.DefaultKeyMap()
+	keyMap.Filter = key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "filter"),
+	)
+	l.KeyMap = keyMap
 
 	// Create viewport for preview
 	vp := viewport.New(80, 20) // Default size, will be updated on first WindowSizeMsg
@@ -356,8 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.promptList.SetItems(items)
 		
-		// Re-enable filtering now that data is loaded
-		m.promptList.SetFilteringEnabled(true)
+		// Filtering is already enabled
 		
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Warning: %v", msg.err)
@@ -374,22 +382,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
+		// Calculate consistent height reservations
+		// Reserve space for: title (1) + spacing (1) + help (2) + status (1) + git status (1) + margins (2) = 8 lines minimum
+		const minReservedHeight = 8
+		availableHeight := msg.Height - minReservedHeight
+		if availableHeight < 5 {
+			availableHeight = 5 // Minimum usable height
+		}
+
 		// Update component sizes based on current view
 		switch m.viewMode {
 		case ViewLibrary:
-			// Library takes full width
-			m.promptList.SetSize(msg.Width, msg.Height-6) // Reserve space for title and help
+			// Library takes available height with consistent reservations
+			m.promptList.SetSize(msg.Width, availableHeight)
 		case ViewPromptDetail:
-			// Viewport takes full width for detail view
+			// Viewport takes available height minus metadata line
 			m.viewport.Width = msg.Width - 4  // Padding
-			m.viewport.Height = msg.Height - 8 // Reserve space for title, metadata, and help
+			m.viewport.Height = availableHeight - 2 // Reserve space for metadata line
 		case ViewCreateFromScratch, ViewCreateFromTemplate, ViewEditPrompt:
 			if m.createForm != nil {
-				m.createForm.Resize(msg.Width, msg.Height)
+				m.createForm.Resize(msg.Width, availableHeight)
 			}
 		case ViewEditTemplate:
 			if m.templateForm != nil {
-				m.templateForm.Resize(msg.Width, msg.Height)
+				m.templateForm.Resize(msg.Width, availableHeight)
 			}
 		}
 		
@@ -541,6 +557,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			
 			return m, cmd
+		}
+
+		// Handle modal-specific keys for help modal
+		if m.showHelpModal {
+			switch msg.String() {
+			case "c":
+				// Copy modal content to clipboard
+				if m.modalContent != "" {
+					if statusMsg, err := clipboard.CopyWithFallback(m.modalContent); err != nil {
+						m.statusMsg = fmt.Sprintf("Copy failed: %v", err)
+						m.statusTimeout = 3
+					} else {
+						m.statusMsg = statusMsg
+						m.statusTimeout = 2
+					}
+					return m, clearStatusCmd()
+				}
+			case "?", "esc":
+				// Close modal
+				m.showHelpModal = false
+				m.modalContent = ""
+				// Clear copy status message when closing
+				if m.statusMsg == "Copied to clipboard!" {
+					m.statusMsg = ""
+					m.statusTimeout = 0
+				}
+				return m, nil
+			}
 		}
 
 		// Handle modal-specific keys for GitHub sync
@@ -859,12 +903,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 
-		case key.Matches(msg, m.keys.Search):
-			if m.viewMode == ViewLibrary && !m.loading {
-				m.promptList.SetFilteringEnabled(true)
-				return m, nil
-			}
-
 		case key.Matches(msg, m.keys.New):
 			if m.viewMode == ViewLibrary && !m.loading {
 				// Initialize the create menu select form
@@ -961,6 +999,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewMode = ViewTemplateManagement
 				return m, nil
 			}
+
+		case key.Matches(msg, m.keys.Help):
+			// Toggle help modal
+			m.showHelpModal = !m.showHelpModal
+			return m, nil
 
 		case key.Matches(msg, m.keys.GHSyncInfo):
 			// Toggle GitHub sync info modal
@@ -1244,6 +1287,11 @@ func (m Model) View() string {
 
 	var mainView string
 
+	// If the help modal is showing, render it on top
+	if m.showHelpModal {
+		return m.renderHelpModal()
+	}
+
 	// If the GitHub sync info modal is showing, render it on top
 	if m.showGHSyncInfo {
 		return m.renderGHSyncInfoModal()
@@ -1333,13 +1381,13 @@ func (m Model) renderLibraryView() string {
 	
 	var help string
 	if m.loading {
-		help = CreateHelp("Loading prompts... • q to quit")
+		help = CreateGuaranteedHelp("Loading prompts... • q quit", m.width)
 	} else {
-		baseHelp := "Enter to view • e to edit • n to create • t for templates • / to search • Ctrl+B boolean search • f saved searches • shift+? for GitHub sync info • q to quit"
 		if m.currentExpression != nil {
-			baseHelp += " • Ctrl+B to modify search"
+			help = CreateGuaranteedHelp("Enter view • Ctrl+B modify search • q quit", m.width)
+		} else {
+			help = CreateGuaranteedHelp("Enter view • e edit • n create • / search • ? help • q quit", m.width)
 		}
-		help = CreateHelp(baseHelp)
 	}
 	
 	// Add git sync status if available
@@ -1396,7 +1444,7 @@ func (m Model) renderPromptDetailView() string {
 	metadataLine := CreateMetadata(metadata)
 
 	// Help text
-	help := CreateHelp("Press c to copy • y to copy as JSON • e to edit • Esc/Ctrl+B to go back")
+	help := CreateGuaranteedHelp("c copy • y copy JSON • e edit • Esc back", m.width)
 
 	// Content viewport
 	content := m.viewport.View()
@@ -1430,7 +1478,7 @@ func (m Model) renderCreateMenuView() string {
 		optionLines = append(optionLines, lines...)
 	}
 
-	help := CreateHelp("↑/↓ or k/j to navigate • Enter to select • Esc/Ctrl+B to go back")
+	help := CreateGuaranteedHelp("↑/↓ navigate • Enter select • Esc back", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1478,7 +1526,7 @@ func (m Model) renderCreateFromScratchView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := CreateHelp("Tab next field • Alt+↑/↓ top/bottom • Ctrl+S save • Esc/Ctrl+B cancel")
+	help := CreateGuaranteedHelp("Tab next field • Ctrl+S save • Esc cancel", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1566,7 +1614,7 @@ func (m Model) renderTemplateListView() string {
 		optionLines = append(optionLines, "") // Add spacing
 	}
 
-	help := helpStyle.Render("↑/↓ or k/j to navigate • Enter to select • Esc/Ctrl+B to go back")
+	help := helpStyle.Render("↑/↓ navigate • Enter select • Esc back")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1614,7 +1662,7 @@ func (m Model) renderEditPromptView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := CreateHelp("Tab next field • Alt+↑/↓ top/bottom • Ctrl+S save • Ctrl+D delete • Esc/Ctrl+B cancel")
+	help := CreateGuaranteedHelp("Tab next field • Ctrl+S save • Ctrl+D delete • Esc cancel", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1657,7 +1705,7 @@ func (m Model) renderEditTemplateView() string {
 	formFields = append(formFields, contentLabel, m.templateForm.textarea.View(), "")
 
 	// Help text
-	help := CreateHelp("Tab next field • ←/→/↑/↓ cursor navigation • Alt+↑/↓ top/bottom • Ctrl+S save • Esc/Ctrl+B cancel")
+	help := CreateGuaranteedHelp("Tab next field • arrows navigate • Ctrl+S save • Esc cancel", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1703,7 +1751,7 @@ func (m Model) renderTemplateDetailView() string {
 	metadataLine := metadataStyle.Render(metadata)
 
 	// Help text
-	help := helpStyle.Render("Press e to edit • Esc/Ctrl+B to go back")
+	help := helpStyle.Render("e edit • Esc back")
 
 	// Content (template preview)
 	content := m.selectedTemplate.Content
@@ -1782,7 +1830,7 @@ func (m Model) renderTemplateManagementView() string {
 		optionLines = append(optionLines, "") // Add spacing
 	}
 
-	help := helpStyle.Render("↑/↓ or k/j to navigate • Enter to select • Esc/Ctrl+B to go back")
+	help := helpStyle.Render("↑/↓ navigate • Enter select • Esc back")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1944,6 +1992,215 @@ func (m *Model) renderGHSyncInfoModal() string {
 	)
 }
 
+// renderHelpModal renders the help modal with comprehensive app information
+func (m *Model) renderHelpModal() string {
+	// Modal styles - use terminal default colors
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(2, 3).
+		Width(90)
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		MarginBottom(1)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Underline(true).
+		MarginTop(1)
+
+	contentStyle := lipgloss.NewStyle().
+		MarginLeft(2)
+
+	keyStyle := lipgloss.NewStyle().
+		Reverse(true).
+		Bold(true).
+		Padding(0, 1)
+
+	descStyle := lipgloss.NewStyle().
+		Italic(true)
+
+	// Build modal content and plain text version
+	var content []string
+	var plainText []string
+
+	// Title
+	content = append(content, titleStyle.Render("Pocket Prompt - Help"))
+	plainText = append(plainText, "Pocket Prompt - Help")
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Overview
+	content = append(content, headerStyle.Render("Overview"))
+	plainText = append(plainText, "Overview")
+	content = append(content, contentStyle.Render("A fast, keyboard-driven terminal app for managing AI prompts and templates."))
+	plainText = append(plainText, "A fast, keyboard-driven terminal app for managing AI prompts and templates.")
+	content = append(content, contentStyle.Render("Store, organize, search, and copy prompts with powerful tagging and templates."))
+	plainText = append(plainText, "Store, organize, search, and copy prompts with powerful tagging and templates.")
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Navigation & Basic Commands
+	content = append(content, headerStyle.Render("Navigation & Basic Commands"))
+	plainText = append(plainText, "Navigation & Basic Commands")
+	
+	keys := [][]string{
+		{"↑/↓", "Navigate lists and prompts"},
+		{"Enter", "Select item / View prompt details"},
+		{"Esc", "Go back / Close modals"},
+		{"q", "Quit application"},
+		{"?", "Toggle this help modal"},
+	}
+	
+	for _, kv := range keys {
+		line := keyStyle.Render(kv[0]) + " " + kv[1]
+		content = append(content, contentStyle.Render(line))
+		plainText = append(plainText, kv[0] + " " + kv[1])
+	}
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Prompt Management
+	content = append(content, headerStyle.Render("Prompt Management"))
+	plainText = append(plainText, "Prompt Management")
+	
+	promptKeys := [][]string{
+		{"n", "Create new prompt (from scratch or template)"},
+		{"e", "Edit selected prompt"},
+		{"c", "Copy prompt as plain text"},
+		{"y", "Copy prompt as JSON messages for LLM APIs"},
+		{"Ctrl+S", "Save prompt when editing"},
+		{"Ctrl+D", "Delete prompt (press twice to confirm)"},
+	}
+	
+	for _, kv := range promptKeys {
+		line := keyStyle.Render(kv[0]) + " " + kv[1]
+		content = append(content, contentStyle.Render(line))
+		plainText = append(plainText, kv[0] + " " + kv[1])
+	}
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Search & Discovery
+	content = append(content, headerStyle.Render("Search & Discovery"))
+	plainText = append(plainText, "Search & Discovery")
+	
+	searchKeys := [][]string{
+		{"/", "Start fuzzy search (type to filter prompts)"},
+		{"Ctrl+B", "Advanced boolean search with tags"},
+		{"Ctrl+L", "View and execute saved searches"},
+		{"Tab", "Switch focus in boolean search"},
+		{"Ctrl+S", "Save current boolean search"},
+	}
+	
+	for _, kv := range searchKeys {
+		line := keyStyle.Render(kv[0]) + " " + kv[1]
+		content = append(content, contentStyle.Render(line))
+		plainText = append(plainText, kv[0] + " " + kv[1])
+	}
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Templates
+	content = append(content, headerStyle.Render("Templates"))
+	plainText = append(plainText, "Templates")
+	
+	content = append(content, contentStyle.Render(keyStyle.Render("t")+" Manage templates (create, edit, view)"))
+	plainText = append(plainText, "t Manage templates (create, edit, view)")
+	content = append(content, contentStyle.Render("Templates are reusable prompt scaffolds with variable slots"))
+	plainText = append(plainText, "Templates are reusable prompt scaffolds with variable slots")
+	content = append(content, contentStyle.Render("Use {{variable_name}} syntax for substitution"))
+	plainText = append(plainText, "Use {{variable_name}} syntax for substitution")
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Boolean Search Examples
+	content = append(content, headerStyle.Render("Boolean Search Examples"))
+	plainText = append(plainText, "Boolean Search Examples")
+	
+	examples := []string{
+		"ai AND writing    - Find prompts tagged with both 'ai' and 'writing'",
+		"code OR python    - Find prompts with either 'code' or 'python' tags",
+		"NOT draft         - Exclude prompts tagged as 'draft'",
+		"(ai OR ml) AND analysis - Complex expressions with parentheses",
+	}
+	
+	for _, example := range examples {
+		content = append(content, contentStyle.Render(example))
+		plainText = append(plainText, example)
+	}
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// File Organization
+	content = append(content, headerStyle.Render("File Organization"))
+	plainText = append(plainText, "File Organization")
+	
+	orgInfo := []string{
+		"Storage: ~/.pocket-prompt/ (or POCKET_PROMPT_DIR)",
+		"Prompts: Stored as Markdown files with YAML frontmatter",
+		"Templates: Reusable scaffolds in templates/ directory", 
+		"Archives: Old versions kept in archive/ for history",
+		"Sync: Optional Git integration for backup and collaboration",
+	}
+	
+	for _, info := range orgInfo {
+		content = append(content, contentStyle.Render(info))
+		plainText = append(plainText, info)
+	}
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Tips
+	content = append(content, headerStyle.Render("Pro Tips"))
+	plainText = append(plainText, "Pro Tips")
+	
+	tips := []string{
+		"• Use descriptive tags for better organization and search",
+		"• Templates save time for similar prompt structures",
+		"• Boolean search is powerful for large prompt libraries",
+		"• JSON copy format works directly with LLM API calls",
+		"• All operations are keyboard-driven for speed",
+		"• Version history preserved when editing prompts",
+	}
+	
+	for _, tip := range tips {
+		content = append(content, contentStyle.Render(tip))
+		plainText = append(plainText, tip)
+	}
+	content = append(content, "")
+	plainText = append(plainText, "")
+
+	// Help text
+	content = append(content, descStyle.Render("Press c to copy • ESC or ? to close"))
+	
+	// Add status message if present
+	if m.statusMsg != "" {
+		statusStyle := lipgloss.NewStyle().
+			Bold(true).
+			MarginTop(1)
+		content = append(content, statusStyle.Render(m.statusMsg))
+	}
+
+	// Store plain text version for copying
+	m.modalContent = lipgloss.JoinVertical(lipgloss.Left, plainText...)
+
+	// Join all content
+	modalContent := lipgloss.JoinVertical(lipgloss.Left, content...)
+	
+	// Apply modal styling
+	modal := modalStyle.Render(modalContent)
+
+	// Center the modal on screen
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		modal,
+	)
+}
+
 // renderPreview renders the selected prompt for preview
 func (m *Model) renderPreview() error {
 	if m.selectedPrompt == nil {
@@ -2042,7 +2299,7 @@ func (m Model) renderSavedSearchesView() string {
 		optionLines = append(optionLines, "") // Add spacing
 	}
 
-	help := helpStyle.Render("↑/↓ or k/j to navigate • Enter to execute search • e to edit • Ctrl+D to delete • Esc/Ctrl+B to go back")
+	help := helpStyle.Render("↑/↓ navigate • Enter execute • e edit • Ctrl+D delete • Esc back")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}

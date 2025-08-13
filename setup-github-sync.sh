@@ -152,13 +152,13 @@ To sync changes to GitHub:
 ```bash
 git add -A
 git commit -m "Update prompts"
-git push origin main
+git push origin master
 ```
 
 To pull changes from GitHub:
 
 ```bash
-git pull origin main
+git pull origin master
 ```
 EOF
         git add README.md
@@ -171,7 +171,7 @@ echo ""
 
 # Push to GitHub
 echo "🚀 Pushing to GitHub..."
-if git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null; then
+if git push -u origin master 2>/dev/null || git push -u origin main 2>/dev/null; then
     echo "✅ Successfully pushed to GitHub!"
 else
     # Try to push current branch
@@ -185,7 +185,7 @@ else
         echo "   Consider setting 'main' as your default branch on GitHub"
     else
         echo "⚠️  Could not determine branch. You may need to push manually:"
-        echo "   git push -u origin main"
+        echo "   git push -u origin master"
     fi
 fi
 

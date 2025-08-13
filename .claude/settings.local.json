@@ -45,7 +45,21 @@
       "Bash(git fetch:*)",
       "Bash(gh repo edit:*)",
       "Bash(git config:*)",
-      "Bash(gh issue create:*)"
+      "Bash(gh issue create:*)",
+      "Bash(./pocket-prompt-test help)",
+      "Bash(./pocket-prompt-test list:*)",
+      "Bash(go test:*)",
+      "Bash(./test_cli.sh:*)",
+      "Bash(./pocket-prompt git setup --help)",
+      "Bash(./pocket-prompt git setup)",
+      "Bash(./pocket-prompt help git)",
+      "Bash(./pocket-prompt help)",
+      "Bash(mv:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
+      "Bash(cd:*)",
+      "Bash(./test_help_text.sh:*)",
+      "Bash(cd:*)"
     ],
     "deny": []
   }

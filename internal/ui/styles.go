@@ -202,6 +202,57 @@ func CreateHelp(text string) string {
 	return StyleTextDim.Render(text)
 }
 
+// Context-aware help creation
+func CreateContextualHelp(essential []string, additional []string) string {
+	// Show essential keybinds
+	essentialText := lipgloss.JoinHorizontal(lipgloss.Left, essential...)
+	
+	// If there are additional keybinds, show expansion hint
+	if len(additional) > 0 {
+		hint := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Italic(true).
+			Render(" • ? for more")
+		essentialText = lipgloss.JoinHorizontal(lipgloss.Left, essentialText, hint)
+	}
+	
+	return StyleTextDim.Render(essentialText)
+}
+
+// Compact help for the most common actions
+func CreateCompactHelp(primary, secondary, exit string) string {
+	parts := []string{}
+	
+	if primary != "" {
+		parts = append(parts, primary)
+	}
+	if secondary != "" {
+		parts = append(parts, secondary)
+	}
+	if exit != "" {
+		parts = append(parts, exit)
+	}
+	
+	text := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+	return StyleTextDim.Render(text)
+}
+
+// Guaranteed help text that ensures visibility regardless of terminal size
+func CreateGuaranteedHelp(helpText string, width int) string {
+	helpStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Width(width).
+		Align(lipgloss.Left).
+		Padding(0, 1)
+	
+	// Truncate help text if it's too long for the terminal width
+	if width > 0 && len(helpText) > width-2 {
+		helpText = helpText[:width-5] + "..."
+	}
+	
+	return helpStyle.Render(helpText)
+}
+
 func CreateStatus(text string, statusType string) string {
 	switch statusType {
 	case "success":

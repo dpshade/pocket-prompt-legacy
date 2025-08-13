@@ -5,10 +5,12 @@ A unified place to keep LLM context - a single-binary, portable prompt interface
 ## Features
 
 - **File-Based Storage**: All prompts are stored as plain Markdown files with YAML frontmatter
-- **TUI Interface**: Fast, keyboard-driven interface built with Charmbracelet
+- **TUI Interface**: Fast, keyboard-driven interface with polished design system built with Charmbracelet
+- **CLI Mode**: Comprehensive headless mode for automation, scripting, and CI/CD pipelines
 - **Variable Substitution**: Define variables in prompts and fill them at runtime
 - **Template System**: Reusable templates for consistent prompt structures
 - **Fuzzy Search**: Quickly find prompts with fuzzy matching
+- **Advanced Git Sync**: Automatic conflict resolution and background synchronization for multi-machine workflows
 - **Portable**: Single binary with no external dependencies
 - **Git-Friendly**: Plain text files that work perfectly with version control
 
@@ -60,6 +62,14 @@ pocket-prompt --init
 2. Launch the TUI:
 ```bash
 pocket-prompt
+```
+
+Or use CLI mode for automation:
+```bash
+pocket-prompt list              # List all prompts
+pocket-prompt search "AI"       # Search for prompts
+pocket-prompt show prompt-id    # Display a specific prompt
+pocket-prompt copy prompt-id    # Copy to clipboard
 ```
 
 3. Navigate with keyboard shortcuts:
@@ -278,11 +288,89 @@ Copy formats:
 - **Plain text** (`c`): Raw rendered prompt text
 - **JSON messages** (`y`): Formatted for LLM APIs like OpenAI
 
+## CLI Mode
+
+Pocket Prompt includes a comprehensive CLI mode for automation:
+
+```bash
+# Basic operations
+pocket-prompt list                          # List all prompts
+pocket-prompt list --format json            # JSON output
+pocket-prompt search "keyword"              # Search prompts
+pocket-prompt show prompt-id                # Display prompt
+pocket-prompt copy prompt-id                # Copy to clipboard
+pocket-prompt render prompt-id --var key=value  # Render with variables
+
+# Create and edit
+pocket-prompt create new-prompt-id          # Create new prompt
+pocket-prompt edit prompt-id                # Edit existing prompt
+pocket-prompt delete prompt-id              # Delete prompt
+
+# Template management
+pocket-prompt templates list                # List templates
+pocket-prompt templates show template-id    # Show template details
+
+# Git synchronization
+pocket-prompt git status                    # Check sync status
+pocket-prompt git sync                      # Manual sync
+pocket-prompt git pull                      # Pull remote changes
+```
+
+Output formats: `--format table|json|ids` for scripting and integration.
+
+## Git Synchronization
+
+**One-command setup** - just provide your repository URL:
+
+```bash
+pocket-prompt git setup https://github.com/username/my-prompts.git
+```
+
+or with SSH:
+
+```bash
+pocket-prompt git setup git@github.com:username/my-prompts.git
+```
+
+That's it! The app automatically:
+
+✅ **Initializes the Git repository**  
+✅ **Creates initial commit and README**  
+✅ **Configures the remote repository**  
+✅ **Handles authentication guidance**  
+✅ **Starts background synchronization**  
+
+### Advanced Features
+
+Once set up, enjoy automatic Git sync with:
+
+- **Automatic Conflict Resolution**: Smart merging strategies for concurrent edits
+- **Background Sync**: Continuous monitoring and pulling of remote changes every 5 minutes
+- **Resilient Push**: Automatic retry with pull-and-merge on push failures
+- **Recovery Options**: Force sync to recover from complex merge scenarios
+
+### Authentication Support
+
+The setup command provides helpful guidance for:
+- **GitHub Personal Access Tokens** for HTTPS
+- **SSH key setup** for secure authentication (recommended)
+- **Multiple authentication methods** with clear error messages
+
+### Manual Commands
+
+```bash
+pocket-prompt git status      # Check sync status
+pocket-prompt git sync        # Manual sync
+pocket-prompt git pull        # Pull remote changes
+```
+
 ## Roadmap
 
-- [ ] CLI commands (render, copy, lint)
+- [x] CLI commands (render, copy, lint)
 - [x] Clipboard integration
 - [x] Export formats (JSON, plain text)
+- [x] Advanced Git synchronization
+- [x] Comprehensive UI design system
 - [ ] Linter for prompt validation
 - [ ] Pack management
 - [ ] DNS TXT publishing

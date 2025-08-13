@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dpshade/pocket-prompt/internal/git"
+	"github.com/dpshade/pocket-prompt/internal/importer"
 	"github.com/dpshade/pocket-prompt/internal/models"
 	"github.com/dpshade/pocket-prompt/internal/storage"
 	"github.com/sahilm/fuzzy"
@@ -443,6 +445,67 @@ func (s *Service) DisableGitSync() {
 	s.gitSync.Disable()
 }
 
+// SetupGitRepository configures Git sync with the provided repository URL
+func (s *Service) SetupGitRepository(repoURL string) error {
+	// Setup the repository
+	if err := s.gitSync.SetupRepository(repoURL); err != nil {
+		return fmt.Errorf("failed to setup Git repository: %w", err)
+	}
+	
+	// If successful, start background sync
+	if s.gitSync.IsEnabled() {
+		ctx := context.Background()
+		go s.gitSync.BackgroundSync(ctx, 5*time.Minute)
+	}
+	
+	// Perform initial sync
+	if err := s.gitSync.SyncChanges("Initial sync after repository setup"); err != nil {
+		// Non-fatal, just warn
+		fmt.Printf("Warning: Initial sync failed: %v\n", err)
+	}
+	
+	return nil
+}
+
+// PullGitChanges manually pulls changes from remote repository
+func (s *Service) PullGitChanges() error {
+	if !s.gitSync.IsEnabled() {
+		return fmt.Errorf("git sync is not enabled")
+	}
+	
+	if err := s.gitSync.PullChanges(); err != nil {
+		return fmt.Errorf("failed to pull changes: %w", err)
+	}
+	
+	// Reload prompts cache after pulling changes
+	return s.loadPrompts()
+}
+
+// ForceGitSync attempts to re-enable git sync and recover from errors
+func (s *Service) ForceGitSync() error {
+	// Try to initialize git sync again
+	if err := s.gitSync.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize git sync: %w", err)
+	}
+	
+	// If successful, start background sync
+	if s.gitSync.IsEnabled() {
+		ctx := context.Background()
+		go s.gitSync.BackgroundSync(ctx, 5*time.Minute)
+	}
+	
+	return nil
+}
+
+// SyncChanges manually triggers a Git sync
+func (s *Service) SyncChanges(message string) error {
+	if !s.gitSync.IsEnabled() {
+		return fmt.Errorf("git sync is not enabled")
+	}
+	
+	return s.gitSync.SyncChanges(message)
+}
+
 // archivePromptByTag archives a prompt by moving it to the archive folder
 func (s *Service) archivePromptByTag(prompt *models.Prompt) error {
 	// Create a copy of the prompt for archiving
@@ -580,4 +643,114 @@ func (s *Service) ExecuteSavedSearch(name string) ([]*models.Prompt, error) {
 	}
 
 	return s.SearchPromptsByBooleanExpression(savedSearch.Expression)
+}
+
+// Claude Code Import Methods
+
+// ImportFromClaudeCode imports commands, workflows, and configurations from Claude Code installations
+func (s *Service) ImportFromClaudeCode(options importer.ImportOptions) (*importer.ImportResult, error) {
+	claudeImporter := importer.NewClaudeCodeImporter(s.storage.GetBaseDir())
+	
+	result, err := claudeImporter.Import(options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import from Claude Code: %w", err)
+	}
+
+	// Save imported items to storage if not a dry run
+	if !options.DryRun {
+		// Save prompts (commands, configurations, workflows)
+		allPrompts := append(result.Commands, result.Configurations...)
+		allPrompts = append(allPrompts, result.Workflows...)
+		
+		for _, prompt := range allPrompts {
+			if err := s.savePromptWithConflictResolution(prompt, options); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("failed to save prompt %s: %w", prompt.ID, err))
+			}
+		}
+
+		// Save templates
+		for _, template := range result.Templates {
+			if err := s.saveTemplateWithConflictResolution(template, options); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("failed to save template %s: %w", template.ID, err))
+			}
+		}
+
+		// Refresh the prompts cache after import
+		if err := s.loadPrompts(); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("failed to refresh prompts cache: %w", err))
+		}
+
+		// Sync to git if enabled and no errors occurred
+		if s.gitSync.IsEnabled() && len(result.Errors) == 0 {
+			commitMessage := fmt.Sprintf("Import from Claude Code: %d commands, %d templates, %d configs, %d workflows", 
+				len(result.Commands), len(result.Templates), len(result.Configurations), len(result.Workflows))
+			
+			if err := s.gitSync.SyncChanges(commitMessage); err != nil {
+				// Don't fail the operation if git sync fails
+				result.Errors = append(result.Errors, fmt.Errorf("git sync failed after import: %w", err))
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// PreviewClaudeCodeImport shows what would be imported without actually importing
+func (s *Service) PreviewClaudeCodeImport(options importer.ImportOptions) (*importer.ImportResult, error) {
+	options.DryRun = true
+	claudeImporter := importer.NewClaudeCodeImporter(s.storage.GetBaseDir())
+	return claudeImporter.Import(options)
+}
+
+// savePromptWithConflictResolution handles conflict resolution when saving imported prompts
+func (s *Service) savePromptWithConflictResolution(prompt *models.Prompt, options importer.ImportOptions) error {
+	// Check if prompt already exists
+	existing, err := s.GetPrompt(prompt.ID)
+	if err == nil {
+		// Prompt exists, apply conflict resolution
+		if options.SkipExisting {
+			return nil // Skip without error
+		}
+		
+		if options.DeduplicateByPath {
+			// Check if it's the same source file
+			if existingPath, ok := existing.Metadata["original_path"].(string); ok {
+				if newPath, ok := prompt.Metadata["original_path"].(string); ok && existingPath == newPath {
+					return nil // Skip duplicate from same source
+				}
+			}
+		}
+		
+		if !options.OverwriteExisting {
+			return fmt.Errorf("prompt %s already exists (use --overwrite to overwrite or --skip-existing to skip)", prompt.ID)
+		}
+		
+		// Update existing prompt while preserving creation time
+		prompt.CreatedAt = existing.CreatedAt
+		prompt.UpdatedAt = time.Now()
+	}
+	
+	return s.SavePrompt(prompt)
+}
+
+// saveTemplateWithConflictResolution handles conflict resolution when saving imported templates
+func (s *Service) saveTemplateWithConflictResolution(template *models.Template, options importer.ImportOptions) error {
+	// Check if template already exists
+	existing, err := s.GetTemplate(template.ID)
+	if err == nil {
+		// Template exists, apply conflict resolution
+		if options.SkipExisting {
+			return nil // Skip without error
+		}
+		
+		if !options.OverwriteExisting {
+			return fmt.Errorf("template %s already exists (use --overwrite to overwrite or --skip-existing to skip)", template.ID)
+		}
+		
+		// Update existing template while preserving creation time
+		template.CreatedAt = existing.CreatedAt
+		template.UpdatedAt = time.Now()
+	}
+	
+	return s.SaveTemplate(template)
 }

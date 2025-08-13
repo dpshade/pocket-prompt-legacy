@@ -84,31 +84,25 @@ func (m *SaveSearchModal) View() string {
 		return ""
 	}
 
-	// Modal styles
+	// Modal styles - use terminal default colors
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
 		Padding(1, 2).
-		Width(60).
-		Background(lipgloss.Color("235"))
+		Width(60)
 
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
 		Bold(true).
 		MarginBottom(1)
 
 	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
 		Bold(true)
 
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
 		Italic(true).
 		MarginTop(1)
 
 	expressionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("214")).
-		Background(lipgloss.Color("236")).
+		Reverse(true).
 		Padding(0, 1)
 
 	var content []string
