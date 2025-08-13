@@ -1,11 +1,46 @@
 package clipboard
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
 )
+
+// ClipboardError represents an error when no clipboard utility is available
+type ClipboardError struct {
+	OS      string
+	Message string
+}
+
+func (e *ClipboardError) Error() string {
+	return e.Message
+}
+
+// NewClipboardError creates a new ClipboardError with helpful installation instructions
+func NewClipboardError() *ClipboardError {
+	var msg string
+	switch runtime.GOOS {
+	case "linux":
+		msg = "no clipboard utility found. Install one of:\n" +
+			"  • Ubuntu/Debian: sudo apt install xclip\n" +
+			"  • Fedora/RHEL: sudo dnf install xclip\n" +
+			"  • Arch: sudo pacman -S xclip\n" +
+			"  • For Wayland: install wl-clipboard"
+	case "darwin":
+		msg = "pbcopy not available (this should not happen on macOS)"
+	case "windows":
+		msg = "clip command not available (this should not happen on Windows)"
+	default:
+		msg = fmt.Sprintf("clipboard not supported on %s", runtime.GOOS)
+	}
+	
+	return &ClipboardError{
+		OS:      runtime.GOOS,
+		Message: msg,
+	}
+}
 
 // Copy copies text to the system clipboard
 func Copy(text string) error {
@@ -30,12 +65,16 @@ func copyDarwin(text string) error {
 
 // copyLinux copies text to clipboard on Linux
 func copyLinux(text string) error {
+	var lastErr error
+	
 	// Try xclip first
 	if isCommandAvailable("xclip") {
 		cmd := exec.Command("xclip", "-selection", "clipboard")
 		cmd.Stdin = strings.NewReader(text)
 		if err := cmd.Run(); err == nil {
 			return nil
+		} else {
+			lastErr = fmt.Errorf("xclip failed: %w", err)
 		}
 	}
 
@@ -45,6 +84,8 @@ func copyLinux(text string) error {
 		cmd.Stdin = strings.NewReader(text)
 		if err := cmd.Run(); err == nil {
 			return nil
+		} else {
+			lastErr = fmt.Errorf("xsel failed: %w", err)
 		}
 	}
 
@@ -54,10 +95,16 @@ func copyLinux(text string) error {
 		cmd.Stdin = strings.NewReader(text)
 		if err := cmd.Run(); err == nil {
 			return nil
+		} else {
+			lastErr = fmt.Errorf("wl-copy failed: %w", err)
 		}
 	}
 
-	return fmt.Errorf("no clipboard utility found (xclip, xsel, or wl-copy)")
+	if lastErr != nil {
+		return fmt.Errorf("clipboard utilities available but failed: %w", lastErr)
+	}
+	
+	return NewClipboardError()
 }
 
 // copyWindows copies text to clipboard on Windows
@@ -80,8 +127,46 @@ func isCommandAvailable(name string) bool {
 func CopyWithFallback(text string) (string, error) {
 	err := Copy(text)
 	if err != nil {
-		// If clipboard fails, we could return instructions for manual copy
+		// Check if it's a ClipboardError (missing utilities)
+		var clipErr *ClipboardError
+		if errors.As(err, &clipErr) {
+			// For missing utilities, provide helpful installation instructions
+			return "", err
+		}
+		// For other errors, provide a generic failure message
 		return "", fmt.Errorf("failed to copy to clipboard: %w", err)
 	}
 	return "Copied to clipboard!", nil
+}
+
+// IsClipboardAvailable checks if clipboard functionality is available
+func IsClipboardAvailable() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return isCommandAvailable("pbcopy")
+	case "linux":
+		return isCommandAvailable("xclip") || isCommandAvailable("xsel") || isCommandAvailable("wl-copy")
+	case "windows":
+		return true // clip should always be available on Windows
+	default:
+		return false
+	}
+}
+
+// GetInstallInstructions returns installation instructions for clipboard utilities
+func GetInstallInstructions() string {
+	switch runtime.GOOS {
+	case "linux":
+		return "Install a clipboard utility:\n" +
+			"  • Ubuntu/Debian: sudo apt install xclip\n" +
+			"  • Fedora/RHEL: sudo dnf install xclip\n" +
+			"  • Arch: sudo pacman -S xclip\n" +
+			"  • For Wayland: install wl-clipboard"
+	case "darwin":
+		return "pbcopy should be available by default on macOS"
+	case "windows":
+		return "clip should be available by default on Windows"
+	default:
+		return fmt.Sprintf("Clipboard not supported on %s", runtime.GOOS)
+	}
 }
