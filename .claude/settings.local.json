@@ -34,7 +34,9 @@
       "Bash(git init:*)",
       "Bash(git remote add:*)",
       "Bash(time:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)"
     ],
     "deny": []
   }
