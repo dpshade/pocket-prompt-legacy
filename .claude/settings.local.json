@@ -40,7 +40,12 @@
       "Bash(git remote set-url:*)",
       "Bash(git branch:*)",
       "Bash(gh api:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(gh repo view:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh repo edit:*)",
+      "Bash(git config:*)",
+      "Bash(gh issue create:*)"
     ],
     "deny": []
   }
