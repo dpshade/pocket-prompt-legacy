@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,13 @@ func NewService() (*Service, error) {
 		if err := gitSync.Initialize(); err != nil {
 			// Git sync initialization failure is not fatal
 			// The service can still work without git sync
+		}
+		
+		// Start background sync if git is enabled
+		if gitSync.IsEnabled() {
+			// Start background sync every 5 minutes
+			ctx := context.Background()
+			go gitSync.BackgroundSync(ctx, 5*time.Minute)
 		}
 	}()
 
@@ -441,6 +449,36 @@ func (s *Service) EnableGitSync() {
 // DisableGitSync disables git synchronization
 func (s *Service) DisableGitSync() {
 	s.gitSync.Disable()
+}
+
+// PullGitChanges manually pulls changes from remote repository
+func (s *Service) PullGitChanges() error {
+	if !s.gitSync.IsEnabled() {
+		return fmt.Errorf("git sync is not enabled")
+	}
+	
+	if err := s.gitSync.PullChanges(); err != nil {
+		return fmt.Errorf("failed to pull changes: %w", err)
+	}
+	
+	// Reload prompts cache after pulling changes
+	return s.loadPrompts()
+}
+
+// ForceGitSync attempts to re-enable git sync and recover from errors
+func (s *Service) ForceGitSync() error {
+	// Try to initialize git sync again
+	if err := s.gitSync.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize git sync: %w", err)
+	}
+	
+	// If successful, start background sync
+	if s.gitSync.IsEnabled() {
+		ctx := context.Background()
+		go s.gitSync.BackgroundSync(ctx, 5*time.Minute)
+	}
+	
+	return nil
 }
 
 // archivePromptByTag archives a prompt by moving it to the archive folder
