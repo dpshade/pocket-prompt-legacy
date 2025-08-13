@@ -1314,12 +1314,7 @@ func (m Model) View() string {
 
 	// Add status message at the bottom if present
 	if m.statusMsg != "" {
-		statusStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("2")).
-			Bold(true).
-			Padding(0, 1)
-		
-		statusBar := statusStyle.Render(m.statusMsg)
+		statusBar := CreateStatus(m.statusMsg, "success") // Default to success styling
 		return lipgloss.JoinVertical(lipgloss.Left, mainView, statusBar)
 	}
 
@@ -1328,52 +1323,29 @@ func (m Model) View() string {
 
 // renderLibraryView renders the prompt library list
 func (m Model) renderLibraryView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	loadingStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("33")).
-		Italic(true).
-		Padding(0, 1)
-
-	title := titleStyle.Render("Pocket Prompt Library")
+	title := StyleTitle.Render("Pocket Prompt Library")
 	
 	// Add boolean search indicator if active
 	var searchIndicator string
 	if m.currentExpression != nil {
-		searchIndicatorStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Background(lipgloss.Color("236")).
-			Bold(true).
-			Padding(0, 1)
-		searchIndicator = searchIndicatorStyle.Render(fmt.Sprintf("Boolean: %s (%d results)", m.currentExpression.String(), len(m.prompts)))
+		searchIndicator = CreateSearchIndicator(m.currentExpression.String(), len(m.prompts))
 	}
 	
 	var help string
 	if m.loading {
-		help = helpStyle.Render("Loading prompts... • q to quit")
+		help = CreateHelp("Loading prompts... • q to quit")
 	} else {
 		baseHelp := "Enter to view • e to edit • n to create • t for templates • / to search • Ctrl+B boolean search • f saved searches • shift+? for GitHub sync info • q to quit"
 		if m.currentExpression != nil {
 			baseHelp += " • Ctrl+B to modify search"
 		}
-		help = helpStyle.Render(baseHelp)
+		help = CreateHelp(baseHelp)
 	}
 	
 	// Add git sync status if available
 	var gitStatus string
 	if m.gitSyncStatus != "" {
-		gitStatusStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Italic(true).
-			Padding(0, 1)
-		gitStatus = gitStatusStyle.Render(fmt.Sprintf("Git: %s", m.gitSyncStatus))
+		gitStatus = CreateGitStatus(m.gitSyncStatus)
 	}
 
 	elements := []string{title}
@@ -1386,7 +1358,7 @@ func (m Model) renderLibraryView() string {
 	
 	// Show loading indicator or prompt list
 	if m.loading {
-		loadingIndicator := loadingStyle.Render("⏳ Loading prompts...")
+		loadingIndicator := StyleLoading.Render("⏳ Loading prompts...")
 		elements = append(elements, loadingIndicator)
 	} else {
 		elements = append(elements, m.promptList.View())
@@ -1403,30 +1375,8 @@ func (m Model) renderPromptDetailView() string {
 		return "No prompt selected"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	metadataStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render(m.selectedPrompt.Title())
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateHeader("Back", m.selectedPrompt.Title())
 
 	// Create metadata line
 	metadata := fmt.Sprintf("ID: %s • Version: %s", m.selectedPrompt.ID, m.selectedPrompt.Version)
@@ -1443,10 +1393,10 @@ func (m Model) renderPromptDetailView() string {
 		}
 		metadata += fmt.Sprintf(" • Tags: %s", tags)
 	}
-	metadataLine := metadataStyle.Render(metadata)
+	metadataLine := CreateMetadata(metadata)
 
 	// Help text
-	help := helpStyle.Render("Press c to copy • y to copy as JSON • e to edit • Esc/Ctrl+B to go back")
+	help := CreateHelp("Press c to copy • y to copy as JSON • e to edit • Esc/Ctrl+B to go back")
 
 	// Content viewport
 	content := m.viewport.View()
@@ -1465,68 +1415,22 @@ func (m Model) renderPromptDetailView() string {
 
 // renderCreateMenuView renders the create menu using SelectForm
 func (m Model) renderCreateMenuView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("33")).
-		Bold(true).
-		Padding(0, 1)
-
-	unselectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244")).
-		Padding(0, 1)
-
-	descriptionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Italic(true).
-		Padding(0, 3)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Create New Prompt")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateHeader("Back", "Create New Prompt")
 
 	if m.selectForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No options available")
 	}
 
-	// Render options
+	// Render options with consistent styling
 	var optionLines []string
 	for i, option := range m.selectForm.options {
-		var style lipgloss.Style
-		if i == m.selectForm.selected {
-			style = selectedStyle
-		} else {
-			style = unselectedStyle
-		}
-		
-		optionLine := style.Render("▶ " + option.Label)
-		optionLines = append(optionLines, optionLine)
-		
-		if option.Description != "" {
-			descLine := descriptionStyle.Render(option.Description)
-			optionLines = append(optionLines, descLine)
-		}
-		
-		optionLines = append(optionLines, "") // Add spacing
+		isSelected := i == m.selectForm.selected
+		lines := CreateOption(option.Label, option.Description, isSelected)
+		optionLines = append(optionLines, lines...)
 	}
 
-	help := helpStyle.Render("↑/↓ or k/j to navigate • Enter to select • Esc/Ctrl+B to go back")
+	help := CreateHelp("↑/↓ or k/j to navigate • Enter to select • Esc/Ctrl+B to go back")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1538,30 +1442,8 @@ func (m Model) renderCreateMenuView() string {
 
 // renderCreateFromScratchView renders the create from scratch form
 func (m Model) renderCreateFromScratchView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Bold(true)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Create from Scratch")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateHeader("Back", "Create from Scratch")
 
 	if m.createForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
@@ -1571,32 +1453,32 @@ func (m Model) renderCreateFromScratchView() string {
 	var formFields []string
 
 	// Version field
-	versionLabel := labelStyle.Render("Version:")
+	versionLabel := StyleFormLabel.Render("Version:")
 	formFields = append(formFields, versionLabel, m.createForm.inputs[versionField].View(), "")
 
 	// Title field
-	titleLabel := labelStyle.Render("Title:")
+	titleLabel := StyleFormLabel.Render("Title:")
 	formFields = append(formFields, titleLabel, m.createForm.inputs[titleField].View(), "")
 
 	// Description field
-	descLabel := labelStyle.Render("Description:")
+	descLabel := StyleFormLabel.Render("Description:")
 	formFields = append(formFields, descLabel, m.createForm.inputs[descriptionField].View(), "")
 
 	// Tags field
-	tagsLabel := labelStyle.Render("Tags:")
-	tagsHelp := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  Use comma-separated values for organization and discovery")
+	tagsLabel := StyleFormLabel.Render("Tags:")
+	tagsHelp := StyleFormHelp.Render("Use comma-separated values for organization and discovery")
 	formFields = append(formFields, tagsLabel, m.createForm.inputs[tagsField].View(), tagsHelp, "")
 
 	// Template reference field
-	templateRefLabel := labelStyle.Render("Template Ref:")
+	templateRefLabel := StyleFormLabel.Render("Template Ref:")
 	formFields = append(formFields, templateRefLabel, m.createForm.inputs[templateRefField].View(), "")
 
 	// Content field
-	contentLabel := labelStyle.Render("Content:")
+	contentLabel := StyleFormLabel.Render("Content:")
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab next field • Alt+↑/↓ top/bottom • Ctrl+S save • Esc/Ctrl+B cancel")
+	help := CreateHelp("Tab next field • Alt+↑/↓ top/bottom • Ctrl+S save • Esc/Ctrl+B cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1608,22 +1490,8 @@ func (m Model) renderCreateFromScratchView() string {
 
 // renderCreateFromTemplateView renders template-based creation
 func (m Model) renderCreateFromTemplateView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Create from Template")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateHeader("Back", "Create from Template")
 
 	content := "Template creation form will go here...\n\nPress Esc/Ctrl+B to go back"
 
@@ -1710,30 +1578,8 @@ func (m Model) renderTemplateListView() string {
 
 // renderEditPromptView renders the prompt editing form
 func (m Model) renderEditPromptView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Bold(true)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Edit Prompt")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateHeader("Back", "Edit Prompt")
 
 	if m.createForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
@@ -1743,32 +1589,32 @@ func (m Model) renderEditPromptView() string {
 	var formFields []string
 
 	// Version field
-	versionLabel := labelStyle.Render("Version:")
+	versionLabel := StyleFormLabel.Render("Version:")
 	formFields = append(formFields, versionLabel, m.createForm.inputs[versionField].View(), "")
 
 	// Title field
-	titleLabel := labelStyle.Render("Title:")
+	titleLabel := StyleFormLabel.Render("Title:")
 	formFields = append(formFields, titleLabel, m.createForm.inputs[titleField].View(), "")
 
 	// Description field
-	descLabel := labelStyle.Render("Description:")
+	descLabel := StyleFormLabel.Render("Description:")
 	formFields = append(formFields, descLabel, m.createForm.inputs[descriptionField].View(), "")
 
 	// Tags field
-	tagsLabel := labelStyle.Render("Tags:")
-	tagsHelp := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  Use comma-separated values for organization and discovery")
+	tagsLabel := StyleFormLabel.Render("Tags:")
+	tagsHelp := StyleFormHelp.Render("Use comma-separated values for organization and discovery")
 	formFields = append(formFields, tagsLabel, m.createForm.inputs[tagsField].View(), tagsHelp, "")
 
 	// Template reference field
-	templateRefLabel := labelStyle.Render("Template Ref:")
+	templateRefLabel := StyleFormLabel.Render("Template Ref:")
 	formFields = append(formFields, templateRefLabel, m.createForm.inputs[templateRefField].View(), "")
 
 	// Content field
-	contentLabel := labelStyle.Render("Content:")
+	contentLabel := StyleFormLabel.Render("Content:")
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab next field • Alt+↑/↓ top/bottom • Ctrl+S save • Ctrl+D delete • Esc/Ctrl+B cancel")
+	help := CreateHelp("Tab next field • Alt+↑/↓ top/bottom • Ctrl+S save • Ctrl+D delete • Esc/Ctrl+B cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
@@ -1780,30 +1626,8 @@ func (m Model) renderEditPromptView() string {
 
 // renderEditTemplateView renders the template editing form
 func (m Model) renderEditTemplateView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Bold(true)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Edit Template")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateHeader("Back", "Edit Template")
 
 	if m.templateForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
@@ -1813,27 +1637,27 @@ func (m Model) renderEditTemplateView() string {
 	var formFields []string
 
 	// Version field
-	versionLabel := labelStyle.Render("Version:")
+	versionLabel := StyleFormLabel.Render("Version:")
 	formFields = append(formFields, versionLabel, m.templateForm.inputs[templateVersionField].View(), "")
 
 	// Name field
-	nameLabel := labelStyle.Render("Name:")
+	nameLabel := StyleFormLabel.Render("Name:")
 	formFields = append(formFields, nameLabel, m.templateForm.inputs[templateNameField].View(), "")
 
 	// Description field
-	descLabel := labelStyle.Render("Description:")
+	descLabel := StyleFormLabel.Render("Description:")
 	formFields = append(formFields, descLabel, m.templateForm.inputs[templateDescField].View(), "")
 
 	// Slots field
-	slotsLabel := labelStyle.Render("Slots:")
+	slotsLabel := StyleFormLabel.Render("Slots:")
 	formFields = append(formFields, slotsLabel, m.templateForm.inputs[templateSlotsField].View(), "")
 
 	// Content field
-	contentLabel := labelStyle.Render("Content:")
+	contentLabel := StyleFormLabel.Render("Content:")
 	formFields = append(formFields, contentLabel, m.templateForm.textarea.View(), "")
 
 	// Help text
-	help := helpStyle.Render("Tab next field • ←/→/↑/↓ cursor navigation • Alt+↑/↓ top/bottom • Ctrl+S save • Esc/Ctrl+B cancel")
+	help := CreateHelp("Tab next field • ←/→/↑/↓ cursor navigation • Alt+↑/↓ top/bottom • Ctrl+S save • Esc/Ctrl+B cancel")
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
