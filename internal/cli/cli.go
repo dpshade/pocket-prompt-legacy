@@ -572,11 +572,13 @@ func (c *CLI) copyPrompt(args []string) error {
 		return fmt.Errorf("failed to render prompt: %w", err)
 	}
 
-	if err := clipboard.Copy(content); err != nil {
-		return fmt.Errorf("failed to copy to clipboard: %w", err)
+	if statusMsg, err := clipboard.CopyWithFallback(content); err != nil {
+		// Print the helpful error message and continue without failing
+		fmt.Printf("Warning: %v\n", err)
+		fmt.Printf("Content saved but not copied to clipboard.\n")
+	} else {
+		fmt.Printf("%s\n", statusMsg)
 	}
-
-	fmt.Printf("Copied prompt '%s' to clipboard\n", id)
 	return nil
 }
 

@@ -289,6 +289,20 @@ func (g *GitSync) hasRemote() bool {
 	return len(strings.TrimSpace(string(output))) > 0
 }
 
+// hasRemoteQuick checks if git has a remote configured with very short timeout for UI
+func (g *GitSync) hasRemoteQuick() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	
+	cmd := exec.CommandContext(ctx, "git", "remote", "-v")
+	cmd.Dir = g.baseDir
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
 // SyncChanges commits and pushes changes to git
 func (g *GitSync) SyncChanges(message string) error {
 	if !g.IsEnabled() {
@@ -376,16 +390,24 @@ func (g *GitSync) GetStatus() (string, error) {
 		return "Git not initialized", nil
 	}
 	
-	if !g.hasRemote() {
-		return "No remote configured", nil
-	}
-	
+	// Fast return for startup - don't block UI
 	if !g.enabled {
 		return "Git sync disabled", nil
 	}
 	
-	// Check if we're ahead/behind remote with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Only do expensive remote operations in background after initialization
+	return g.getDetailedStatus()
+}
+
+// getDetailedStatus performs the actual git status check with timeouts
+func (g *GitSync) getDetailedStatus() (string, error) {
+	// Quick check for remote with reduced timeout
+	if !g.hasRemoteQuick() {
+		return "No remote configured", nil
+	}
+	
+	// Check if we're ahead/behind remote with short timeout for UI responsiveness  
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	
 	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--branch")

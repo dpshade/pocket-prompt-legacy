@@ -199,7 +199,7 @@ func (s *Storage) listPromptsFromDir(dir string) ([]*models.Prompt, error) {
 			}
 			
 			// Cache the loaded prompt metadata
-			s.cache.Set(filepath.Join(s.rootPath, relPath), info, prompt)
+			s.cache.Set(relPath, filepath.Join(s.rootPath, relPath), info, prompt)
 			cacheModified = true
 			
 			prompts = append(prompts, prompt)

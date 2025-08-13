@@ -101,15 +101,15 @@ func (c *MetadataCache) Get(filePath string, fileInfo os.FileInfo) (*PromptMetad
 }
 
 // Set stores metadata in the cache
-func (c *MetadataCache) Set(filePath string, fileInfo os.FileInfo, prompt *models.Prompt) {
+func (c *MetadataCache) Set(relPath string, fullPath string, fileInfo os.FileInfo, prompt *models.Prompt) {
 	// Calculate file hash for additional validation
 	fileHash := ""
-	if data, err := os.ReadFile(filePath); err == nil {
+	if data, err := os.ReadFile(fullPath); err == nil {
 		hash := sha256.Sum256(data)
 		fileHash = hex.EncodeToString(hash[:])
 	}
 
-	c.metadata[filePath] = &PromptMetadata{
+	c.metadata[relPath] = &PromptMetadata{
 		ID:          prompt.ID,
 		Version:     prompt.Version,
 		Name:        prompt.Name,
