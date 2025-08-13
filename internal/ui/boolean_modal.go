@@ -27,6 +27,7 @@ type BooleanSearchModal struct {
 	searchFunc     func(*models.BooleanExpression) ([]*models.Prompt, error) // Callback for live search
 	saveFunc       func(models.SavedSearch) error // Callback for saving searches
 	saveRequested  bool // Flag to indicate save was requested
+	applyRequested bool // Flag to indicate apply search and return to list was requested
 	editMode       bool // Flag to indicate edit mode
 	originalSearch *models.SavedSearch // Original search being edited
 }
@@ -63,6 +64,7 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			m.isActive = false
 			m.focusResults = false
 			m.resultsCursor = 0
+			m.applyRequested = false
 			return nil
 		
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
@@ -107,12 +109,14 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			return nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) && !m.focusResults:
-			// Parse and execute search (but don't auto-search since we do live search)
+			// Parse and apply search, then close modal and return to list
 			m.currentQuery = m.textarea.Value()
 			if m.currentQuery != "" {
 				expr, err := m.parseQuery(m.currentQuery)
 				if err == nil {
 					m.expression = expr
+					m.applyRequested = true
+					m.isActive = false
 				}
 			}
 			return nil
@@ -369,6 +373,16 @@ func (m *BooleanSearchModal) IsSaveRequested() bool {
 // ClearSaveRequest clears the save request flag
 func (m *BooleanSearchModal) ClearSaveRequest() {
 	m.saveRequested = false
+}
+
+// IsApplyRequested returns whether apply search and return to list was requested
+func (m *BooleanSearchModal) IsApplyRequested() bool {
+	return m.applyRequested
+}
+
+// ClearApplyRequest clears the apply request flag
+func (m *BooleanSearchModal) ClearApplyRequest() {
+	m.applyRequested = false
 }
 
 // IsActive returns whether the modal is active

@@ -29,22 +29,22 @@ type gitSyncStatusMsg struct {
 	err    error
 }
 
-// loadPromptsCmd starts async loading of prompts and templates
+// loadPromptsCmd loads prompts and templates synchronously (should be fast with cache)
 func loadPromptsCmd(svc *service.Service) tea.Cmd {
 	return func() tea.Msg {
-		// Load templates first (usually fewer and faster)
-		templates, templateErr := svc.ListTemplates()
-		if templateErr != nil {
-			templates = []*models.Template{}
-		}
-		
-		// Load prompts (potentially slower with many files)
+		// Load prompts (should be fast with cache)
 		prompts, promptErr := svc.ListPrompts()
 		if promptErr != nil {
 			prompts = []*models.Prompt{}
 		}
 		
-		// Return the first error encountered, if any
+		// Load templates (usually few files)
+		templates, templateErr := svc.ListTemplates()
+		if templateErr != nil {
+			templates = []*models.Template{}
+		}
+		
+		// Return first error encountered
 		var err error
 		if promptErr != nil {
 			err = promptErr
@@ -60,13 +60,14 @@ func loadPromptsCmd(svc *service.Service) tea.Cmd {
 	}
 }
 
-// gitSyncStatusCmd gets the current git sync status
+
+// gitSyncStatusCmd gets the current git sync status (disabled for performance)
 func gitSyncStatusCmd(svc *service.Service) tea.Cmd {
 	return func() tea.Msg {
-		status, err := svc.GetGitSyncStatus()
+		// Skip git operations entirely for startup performance
 		return gitSyncStatusMsg{
-			status: status,
-			err:    err,
+			status: "Git sync disabled for startup performance",
+			err:    nil,
 		}
 	}
 }
@@ -133,6 +134,7 @@ type Model struct {
 	// Modal state
 	showGHSyncInfo bool
 	showHelpModal  bool
+	helpViewport   viewport.Model // Viewport for scrollable help modal
 	modalContent   string // Plain text content for copying
 	
 	// Git sync state
@@ -296,6 +298,10 @@ func NewModel(svc *service.Service) (*Model, error) {
 	vp.Style = lipgloss.NewStyle().
 		Padding(1, 2)
 
+	// Create viewport for help modal
+	helpVp := viewport.New(56, 23) // Smaller size for help modal
+	helpVp.Style = lipgloss.NewStyle()
+
 	// Create glamour renderer for markdown
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
@@ -310,6 +316,7 @@ func NewModel(svc *service.Service) (*Model, error) {
 		viewMode:        ViewLibrary,
 		promptList:      l,
 		viewport:        vp,
+		helpViewport:    helpVp,
 		help:            help.New(),
 		keys:            keys,
 		prompts:         prompts,
@@ -321,11 +328,9 @@ func NewModel(svc *service.Service) (*Model, error) {
 
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
-	// Start async loading of prompts and templates and git sync status
-	return tea.Batch(
-		loadPromptsCmd(m.service),
-		gitSyncStatusCmd(m.service),
-	)
+	// Simple approach: just load data synchronously (cache should make it fast)
+	// Skip git entirely for startup
+	return loadPromptsCmd(m.service)
 }
 
 // tickMsg is sent to clear the status message
@@ -353,7 +358,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case loadCompleteMsg:
-		// Data loading completed
+		// Data loading completed (simple synchronous approach)
 		m.loading = false
 		m.prompts = msg.prompts
 		m.templates = msg.templates
@@ -365,19 +370,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.promptList.SetItems(items)
 		
-		// Filtering is already enabled
-		
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Warning: %v", msg.err)
 			m.statusTimeout = 100 // Show for ~5 seconds
 		}
 	case gitSyncStatusMsg:
-		// Update git sync status
-		if msg.err == nil {
-			m.gitSyncStatus = msg.status
-		} else {
-			m.gitSyncStatus = "Git status unknown"
-		}
+		// Update git sync status (skip to avoid any blocking)
+		m.gitSyncStatus = "Git sync disabled for startup performance"
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -416,6 +415,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.saveSearchModal != nil {
 			m.saveSearchModal.Resize(msg.Width, msg.Height)
 		}
+		
+		// Update help modal viewport size
+		helpWidth := min(60, msg.Width-4)
+		helpHeight := min(25, msg.Height-4)
+		m.helpViewport.Width = helpWidth - 4  // Account for modal padding and border
+		m.helpViewport.Height = helpHeight - 4 // Account for modal padding and border
 
 		// Update glamour renderer width for detail view
 		glamourWidth := m.width - 8 // Account for padding
@@ -499,6 +504,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			
+			// Check if apply search was requested (Enter pressed in search input)
+			if m.booleanSearchModal.IsApplyRequested() {
+				if expr := m.booleanSearchModal.GetExpression(); expr != nil {
+					results, err := m.service.SearchPromptsByBooleanExpression(expr)
+					if err == nil {
+						// Update prompt list with search results
+						items := make([]list.Item, len(results))
+						for i, p := range results {
+							items[i] = p
+						}
+						m.promptList.SetItems(items)
+						m.prompts = results
+						m.currentExpression = expr
+						
+						m.statusMsg = fmt.Sprintf("Found %d prompts", len(results))
+						m.statusTimeout = 2
+					} else {
+						m.statusMsg = fmt.Sprintf("Search failed: %v", err)
+						m.statusTimeout = 3
+					}
+				}
+				m.booleanSearchModal.ClearApplyRequest()
+				return m, clearStatusCmd()
+			}
+			
 			// Check if a result was selected
 			if selectedPrompt := m.booleanSearchModal.GetSelectedResult(); selectedPrompt != nil {
 				m.selectedPrompt = selectedPrompt
@@ -561,7 +591,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle modal-specific keys for help modal
 		if m.showHelpModal {
+			// First, handle viewport scrolling
 			switch msg.String() {
+			case "up", "k":
+				m.helpViewport.LineUp(1)
+				return m, nil
+			case "down", "j":
+				m.helpViewport.LineDown(1)
+				return m, nil
+			case "pgup":
+				m.helpViewport.HalfViewUp()
+				return m, nil
+			case "pgdown":
+				m.helpViewport.HalfViewDown()
+				return m, nil
+			case "home":
+				m.helpViewport.GotoTop()
+				return m, nil
+			case "end":
+				m.helpViewport.GotoBottom()
+				return m, nil
 			case "c":
 				// Copy modal content to clipboard
 				if m.modalContent != "" {
@@ -1994,11 +2043,15 @@ func (m *Model) renderGHSyncInfoModal() string {
 
 // renderHelpModal renders the help modal with comprehensive app information
 func (m *Model) renderHelpModal() string {
-	// Modal styles - use terminal default colors
+	// Modal styles - smaller size with scrolling capability
+	maxWidth := min(60, m.width-4)   // Smaller width, responsive to terminal size
+	maxHeight := min(25, m.height-4) // Constrained height to enable scrolling
+	
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		Padding(2, 3).
-		Width(90)
+		Padding(1, 2).
+		Width(maxWidth).
+		Height(maxHeight)
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -2047,7 +2100,7 @@ func (m *Model) renderHelpModal() string {
 	keys := [][]string{
 		{"↑/↓", "Navigate lists and prompts"},
 		{"Enter", "Select item / View prompt details"},
-		{"Esc", "Go back / Close modals"},
+		{"b", "Go back / Close modals"},
 		{"q", "Quit application"},
 		{"?", "Toggle this help modal"},
 	}
@@ -2172,7 +2225,7 @@ func (m *Model) renderHelpModal() string {
 	plainText = append(plainText, "")
 
 	// Help text
-	content = append(content, descStyle.Render("Press c to copy • ESC or ? to close"))
+	content = append(content, descStyle.Render("Press c to copy • ↑/↓ to scroll • ESC or ? to close"))
 	
 	// Add status message if present
 	if m.statusMsg != "" {
@@ -2185,11 +2238,15 @@ func (m *Model) renderHelpModal() string {
 	// Store plain text version for copying
 	m.modalContent = lipgloss.JoinVertical(lipgloss.Left, plainText...)
 
-	// Join all content
+	// Join all content for the viewport
 	modalContent := lipgloss.JoinVertical(lipgloss.Left, content...)
 	
-	// Apply modal styling
-	modal := modalStyle.Render(modalContent)
+	// Set content in the help viewport
+	m.helpViewport.SetContent(modalContent)
+	
+	// Create modal frame around the viewport
+	viewportContent := m.helpViewport.View()
+	modal := modalStyle.Render(viewportContent)
 
 	// Center the modal on screen
 	return lipgloss.Place(

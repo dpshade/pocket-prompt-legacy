@@ -10,6 +10,7 @@ A unified place to keep LLM context - a single-binary, portable prompt interface
 - **Variable Substitution**: Define variables in prompts and fill them at runtime
 - **Template System**: Reusable templates for consistent prompt structures
 - **Fuzzy Search**: Quickly find prompts with fuzzy matching
+- **Boolean Search**: Advanced tag-based search with AND/OR/NOT operators
 - **Advanced Git Sync**: Automatic conflict resolution and background synchronization for multi-machine workflows
 - **Portable**: Single binary with no external dependencies
 - **Git-Friendly**: Plain text files that work perfectly with version control
@@ -80,7 +81,8 @@ pocket-prompt copy prompt-id    # Copy to clipboard
    - `e` - Edit selected prompt
    - `n` - Create new prompt
    - `t` - Manage templates
-   - `/` - Search prompts
+   - `/` - Search prompts (fuzzy search)
+   - `Ctrl+B` - Boolean tag search
    - `q` - Quit
 
    **Prompt Detail View:**
@@ -232,6 +234,70 @@ Variable types:
 - `boolean` - True/false values
 - `list` - Arrays of values
 
+## Boolean Search
+
+Boolean search provides advanced tag-based filtering using logical operators. Access it by pressing `Ctrl+B` in the library view.
+
+### Syntax
+
+Use logical operators to create complex search expressions:
+
+- **AND**: Find prompts that have all specified tags
+  ```
+  ai AND analysis
+  ```
+
+- **OR**: Find prompts that have any of the specified tags
+  ```
+  writing OR creative
+  ```
+
+- **NOT**: Exclude prompts with specific tags
+  ```
+  NOT deprecated
+  ```
+
+- **Parentheses**: Group expressions for complex logic
+  ```
+  (ai AND analysis) OR writing
+  ```
+
+### Examples
+
+```bash
+# Find prompts tagged with both "ai" and "analysis"
+ai AND analysis
+
+# Find prompts with either "writing" or "creative" tags
+writing OR creative
+
+# Find AI prompts but exclude deprecated ones
+ai AND NOT deprecated
+
+# Complex query: AI analysis or writing prompts, but not templates
+(ai AND analysis) OR writing AND NOT template
+
+# Find prompts with specific combinations
+(python OR javascript) AND tutorial AND NOT beginner
+```
+
+### Features
+
+- **Live Search**: Results update as you type
+- **Tag Autocomplete**: Shows available tags for reference
+- **Save Searches**: Save complex expressions with `Ctrl+S`
+- **Edit Saved Searches**: Modify and reuse saved boolean expressions
+- **Keyboard Navigation**: Use `Tab` to switch between search input and results
+
+### Keyboard Shortcuts in Boolean Search Modal
+
+- `Tab` - Toggle focus between search input and results
+- `↑/↓` or `k/j` - Navigate through search results
+- `Enter` - Apply search and return to list (when in search input) or select result (when in results)
+- `Ctrl+S` - Save current search expression
+- `Ctrl+H` - Toggle help text
+- `Esc` - Close boolean search modal
+
 ## Templates
 
 Templates provide consistent structure across prompts. All headers are fully editable:
@@ -296,7 +362,8 @@ Pocket Prompt includes a comprehensive CLI mode for automation:
 # Basic operations
 pocket-prompt list                          # List all prompts
 pocket-prompt list --format json            # JSON output
-pocket-prompt search "keyword"              # Search prompts
+pocket-prompt search "keyword"              # Search prompts (fuzzy)
+pocket-prompt search --boolean "ai AND analysis"  # Boolean tag search
 pocket-prompt show prompt-id                # Display prompt
 pocket-prompt copy prompt-id                # Copy to clipboard
 pocket-prompt render prompt-id --var key=value  # Render with variables
