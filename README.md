@@ -37,49 +37,6 @@ Pocket Prompt is your **unified command center** for all LLM interactions:
 - **Template Engine**: Consistent prompt structures
 - **Auto-sync**: Background Git synchronization
 
-## Perfect For
-
-### 👩‍💻 **Developers & Engineers**
-```bash
-# Store your go-to prompts
-pocket-prompt render code-reviewer --var language=Go --var focus=performance
-pocket-prompt render architecture-analysis --var system=microservices
-
-# CLI automation in scripts
-./deploy.sh && pocket-prompt render deployment-summary --var env=prod | send-to-slack
-```
-
-### 📝 **Content Creators & Writers**  
-```bash
-# Reusable writing agents
-pocket-prompt render creative-writer --var style=technical --var audience=developers
-pocket-prompt render editor-agent --var focus="clarity and conciseness"
-
-# Template-driven content
-pocket-prompt render blog-outline --var topic="AI safety" --var length=2000
-```
-
-### 🎯 **AI Researchers & Prompt Engineers**
-```bash
-# Versioned prompt development
-git log prompts/chain-of-thought-v3.md
-pocket-prompt boolean-search "(reasoning AND complex) NOT deprecated"
-
-# A/B test different prompt versions
-pocket-prompt render analysis-v1 --var data=Q3-metrics > results-v1.txt
-pocket-prompt render analysis-v2 --var data=Q3-metrics > results-v2.txt
-```
-
-### 📱 **iOS Power Users**
-- **Shortcuts Integration**: Voice → Search → Render → ChatGPT
-- **URL-based Access**: `http://localhost:8080/pocket-prompt/render/my-prompt?var1=value`  
-- **Offline-First**: No API keys or internet required
-
-### 🏢 **Teams & Organizations**
-- **Shared Git Repos**: Team prompt libraries with version control
-- **Consistent Standards**: Shared templates ensure uniform output
-- **Audit Trail**: Full history of prompt evolution and usage
-
 ## Installation
 
 ### One-Line Installation (Recommended)
@@ -169,6 +126,76 @@ pocket-prompt --url-server      # Start HTTP API for iOS Shortcuts
    - `Shift+Tab/↑` - Previous field
    - `Ctrl+S` - Save changes
    - `←/esc/b` - Cancel (back to library)
+
+## Git Sync Quick Start
+
+**Sync your prompts across devices** with automatic Git backup and multi-device access.
+
+### 1. Create a Git Repository
+
+**Option A: GitHub (Recommended)**
+```bash
+# Create a private repository on GitHub first, then:
+pocket-prompt git setup https://github.com/yourusername/my-prompts.git
+```
+
+**Option B: Using GitHub CLI**
+```bash
+# Let the setup script create the repo for you
+./setup-github-sync.sh
+```
+
+**Option C: SSH (More Secure)**
+```bash
+pocket-prompt git setup git@github.com:yourusername/my-prompts.git
+```
+
+### 2. Authentication Setup
+
+**For HTTPS (GitHub):**
+- Create a Personal Access Token at https://github.com/settings/tokens
+- Select "repo" scope for private repositories
+- Use token as password when prompted
+
+**For SSH (Recommended):**
+```bash
+# Generate SSH key if you don't have one
+ssh-keygen -t ed25519 -C "your-email@example.com"
+
+# Add to GitHub: https://github.com/settings/ssh/new
+cat ~/.ssh/id_ed25519.pub
+```
+
+### 3. Verify Setup
+
+```bash
+pocket-prompt git status        # Check sync status
+```
+
+### 4. Automatic Sync
+
+That's it! Your prompts now automatically:
+- ✅ **Backup every change** to your repository
+- ✅ **Pull updates** from other devices every 5 minutes  
+- ✅ **Resolve conflicts** automatically when possible
+- ✅ **Sync in background** without interrupting your workflow
+
+### Multi-Device Usage
+
+**On a new device:**
+```bash
+# Clone your existing prompt library
+git clone https://github.com/yourusername/my-prompts.git ~/.pocket-prompt
+cd ~/.pocket-prompt
+pocket-prompt git enable    # Enable sync on this device
+```
+
+**Quick Commands:**
+```bash
+pocket-prompt git sync      # Force sync now
+pocket-prompt git pull      # Pull latest changes
+pocket-prompt git status    # Check sync status
+```
 
 ## Prompt Structure
 
