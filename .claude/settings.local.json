@@ -59,7 +59,10 @@
       "Bash(go list:*)",
       "Bash(cd:*)",
       "Bash(./test_help_text.sh:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(./pocket-prompt --help)",
+      "Bash(cat:*)",
+      "Bash(git pull:*)"
     ],
     "deny": []
   }

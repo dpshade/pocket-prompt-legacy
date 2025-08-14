@@ -1493,7 +1493,7 @@ func (m Model) renderPromptDetailView() string {
 	metadataLine := CreateMetadata(metadata)
 
 	// Help text
-	help := CreateGuaranteedHelp("c copy • y copy JSON • e edit • Esc back", m.width)
+	help := CreateGuaranteedHelp("c copy • y copy JSON • e edit • b back", m.width)
 
 	// Content viewport
 	content := m.viewport.View()
