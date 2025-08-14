@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,11 +45,12 @@ func generateIDFromTitle(title string) string {
 
 // CreateForm handles prompt creation
 type CreateForm struct {
-	inputs       []textinput.Model
-	textarea     textarea.Model
-	focused      int
-	submitted    bool
-	fromScratch  bool // True for simplified "from scratch" form
+	inputs        []textinput.Model
+	textarea      textarea.Model
+	focused       int
+	submitted     bool
+	fromScratch   bool // True for simplified "from scratch" form
+	availableTags []string // Added for tag autocomplete
 }
 
 // Form field indices
@@ -242,6 +244,12 @@ func (f *CreateForm) Update(msg tea.Msg) tea.Cmd {
 	if f.focused != contentField {
 		var cmd tea.Cmd
 		f.inputs[f.focused], cmd = f.inputs[f.focused].Update(msg)
+		
+		// Update tag autocomplete if we're in the tags field
+		if f.focused == tagsField {
+			f.updateTagAutocomplete()
+		}
+		
 		return cmd
 	}
 
@@ -456,6 +464,80 @@ func (f *CreateForm) Reset() {
 	f.focused = 0
 	f.submitted = false
 	f.inputs[0].Focus()
+}
+
+// SetAvailableTags sets the available tags for autocomplete
+func (f *CreateForm) SetAvailableTags(tags []string) {
+	f.availableTags = tags
+	if len(tags) > 0 {
+		f.inputs[tagsField].SetSuggestions(tags)
+		f.inputs[tagsField].ShowSuggestions = true
+		
+		// Customize keybindings to avoid Tab conflict
+		customKeyMap := textinput.DefaultKeyMap
+		customKeyMap.AcceptSuggestion = key.NewBinding(key.WithKeys("ctrl+space", "right"))
+		f.inputs[tagsField].KeyMap = customKeyMap
+	}
+}
+
+// updateTagAutocomplete updates tag autocomplete suggestions based on current input
+func (f *CreateForm) updateTagAutocomplete() {
+	if len(f.availableTags) == 0 {
+		return
+	}
+	
+	value := f.inputs[tagsField].Value()
+	cursorPos := f.inputs[tagsField].Position()
+	
+	// Find the current tag being typed (comma-separated)
+	currentTag := f.getCurrentTagForCompletion(value, cursorPos)
+	
+	if currentTag == "" {
+		// Show all tags if no current tag
+		f.inputs[tagsField].SetSuggestions(f.availableTags)
+	} else {
+		// Filter tags that start with the current tag (case insensitive)
+		var filteredTags []string
+		currentTagLower := strings.ToLower(currentTag)
+		for _, tag := range f.availableTags {
+			if strings.HasPrefix(strings.ToLower(tag), currentTagLower) {
+				filteredTags = append(filteredTags, tag)
+			}
+		}
+		f.inputs[tagsField].SetSuggestions(filteredTags)
+	}
+}
+
+// getCurrentTagForCompletion extracts the tag at the cursor position in comma-separated input
+func (f *CreateForm) getCurrentTagForCompletion(text string, cursorPos int) string {
+	if cursorPos < 0 || cursorPos > len(text) {
+		return ""
+	}
+	
+	// Find the start and end of current tag (comma-separated)
+	tagStart := 0
+	for i := cursorPos - 1; i >= 0; i-- {
+		if text[i] == ',' {
+			tagStart = i + 1
+			break
+		}
+	}
+	
+	tagEnd := len(text)
+	for i := cursorPos; i < len(text); i++ {
+		if text[i] == ',' {
+			tagEnd = i
+			break
+		}
+	}
+	
+	// Extract and trim the current tag
+	if tagEnd <= len(text) {
+		tag := strings.TrimSpace(text[tagStart:tagEnd])
+		return tag
+	}
+	
+	return ""
 }
 
 // LoadPrompt loads an existing prompt into the form for editing
@@ -854,10 +936,16 @@ func (f *SelectForm) Update(msg tea.Msg) tea.Cmd {
 		case "up", "k":
 			if f.selected > 0 {
 				f.selected--
+			} else {
+				// Wrap to bottom
+				f.selected = len(f.options) - 1
 			}
 		case "down", "j":
 			if f.selected < len(f.options)-1 {
 				f.selected++
+			} else {
+				// Wrap to top
+				f.selected = 0
 			}
 		case "enter":
 			f.submitted = true

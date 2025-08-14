@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
@@ -28,24 +29,32 @@ type Prompt struct {
 
 // FilterValue returns the value used for filtering in lists
 func (p Prompt) FilterValue() string {
-	return p.Name
+	return cleanString(p.Name)
 }
 
 // Title satisfies the list.Item interface
 func (p Prompt) Title() string {
 	if p.Name != "" {
-		return p.Name
+		return cleanString(p.Name)
 	}
-	return p.ID
+	return cleanString(p.ID)
 }
 
 // Description satisfies the list.Item interface  
 func (p Prompt) Description() string {
 	var parts []string
 	
-	// Add summary if available
+	// Add summary if available (truncate long summaries)
 	if p.Summary != "" {
-		parts = append(parts, p.Summary)
+		summary := cleanString(p.Summary)
+		// Truncate summary if it's too long
+		maxSummaryLength := 60
+		if len(summary) > maxSummaryLength {
+			summary = summary[:maxSummaryLength-3] + "..."
+		}
+		if summary != "" {
+			parts = append(parts, summary)
+		}
 	}
 	
 	// Add last edited info
@@ -55,19 +64,56 @@ func (p Prompt) Description() string {
 	
 	// Add tags if available
 	if len(p.Tags) > 0 {
-		parts = append(parts, "Tags: " + joinTags(p.Tags))
+		tagsStr := joinTags(p.Tags)
+		if tagsStr != "" {
+			parts = append(parts, "Tags: " + tagsStr)
+		}
 	}
 	
 	// Join all parts with " • " separator
 	result := ""
 	for i, part := range parts {
-		if i > 0 {
-			result += " • "
+		cleanPart := cleanString(part)
+		if cleanPart != "" {
+			if i > 0 {
+				result += " • "
+			}
+			result += cleanPart
 		}
-		result += part
 	}
 	
-	return result
+	// Final truncation to ensure it doesn't exceed terminal width
+	// Leave space for list indicator and margins
+	maxTotalLength := 100
+	if len(result) > maxTotalLength {
+		result = result[:maxTotalLength-3] + "..."
+	}
+	
+	return cleanString(result)
+}
+
+// cleanString removes problematic characters that might cause rendering issues
+func cleanString(s string) string {
+	if s == "" {
+		return ""
+	}
+	
+	// Remove any control characters, newlines, tabs that could break rendering
+	cleaned := ""
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			cleaned += " "
+		} else if r >= 32 && r != 127 { // Keep printable ASCII + unicode
+			cleaned += string(r)
+		}
+	}
+	
+	// Collapse multiple spaces
+	for cleaned != strings.ReplaceAll(cleaned, "  ", " ") {
+		cleaned = strings.ReplaceAll(cleaned, "  ", " ")
+	}
+	
+	return strings.TrimSpace(cleaned)
 }
 
 func joinTags(tags []string) string {

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,7 +13,7 @@ import (
 
 // BooleanSearchModal provides a modal interface for boolean search
 type BooleanSearchModal struct {
-	textarea       textarea.Model
+	booleanInput   textinput.Model  // Changed from textarea to textinput for autocomplete
 	textInput      textinput.Model
 	availableTags  []string
 	searchResults  []*models.Prompt
@@ -38,12 +37,20 @@ type BooleanSearchModal struct {
 
 // NewBooleanSearchModal creates a new modal boolean search
 func NewBooleanSearchModal(availableTags []string) *BooleanSearchModal {
-	ta := textarea.New()
-	ta.Placeholder = "Enter boolean search (tag1 AND tag2 OR tag3, NOT tag4)"
-	ta.Focus()
-	ta.CharLimit = 500
-	ta.SetWidth(70)
-	ta.SetHeight(3)
+	bi := textinput.New()
+	bi.Placeholder = "Enter boolean search (tag1 AND tag2 OR tag3, NOT tag4)"
+	bi.Focus()
+	bi.CharLimit = 500
+	bi.Width = 70
+	
+	// Set up autocomplete suggestions with custom keybindings
+	bi.SetSuggestions(availableTags)
+	bi.ShowSuggestions = true
+	
+	// Customize keybindings to avoid Tab conflict
+	customKeyMap := textinput.DefaultKeyMap
+	customKeyMap.AcceptSuggestion = key.NewBinding(key.WithKeys("ctrl+space", "right"))
+	bi.KeyMap = customKeyMap
 
 	ti := textinput.New()
 	ti.Placeholder = "Optional: text search within boolean results"
@@ -51,7 +58,7 @@ func NewBooleanSearchModal(availableTags []string) *BooleanSearchModal {
 	ti.Width = 70
 
 	return &BooleanSearchModal{
-		textarea:      ta,
+		booleanInput:  bi,
 		textInput:     ti,
 		availableTags: availableTags,
 		isActive:      false,
@@ -78,27 +85,27 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
-			// Cycle focus: textarea -> text input -> results (if any) -> textarea
+			// Cycle focus: boolean input -> text input -> results (if any) -> boolean input
 			if m.focusResults {
-				// Currently on results, go back to textarea
+				// Currently on results, go back to boolean input
 				m.focusResults = false
 				m.focusTextInput = false
-				m.textarea.Focus()
+				m.booleanInput.Focus()
 				m.textInput.Blur()
 			} else if m.focusTextInput {
-				// Currently on text input, go to results if available, otherwise textarea
+				// Currently on text input, go to results if available, otherwise boolean input
 				m.focusTextInput = false
 				m.textInput.Blur()
 				if len(m.searchResults) > 0 {
 					m.focusResults = true
-					m.textarea.Blur()
+					m.booleanInput.Blur()
 				} else {
-					m.textarea.Focus()
+					m.booleanInput.Focus()
 				}
 			} else {
-				// Currently on textarea, go to text input
+				// Currently on boolean input, go to text input
 				m.focusTextInput = true
-				m.textarea.Blur()
+				m.booleanInput.Blur()
 				m.textInput.Focus()
 			}
 			return nil
@@ -135,7 +142,7 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) && !m.focusResults && !m.focusTextInput:
 			// Parse and apply search, then close modal and return to list
-			m.currentQuery = m.textarea.Value()
+			m.currentQuery = m.booleanInput.Value()
 			m.textQuery = m.textInput.Value()
 			if m.currentQuery != "" {
 				expr, err := m.parseQuery(m.currentQuery)
@@ -148,11 +155,14 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
-		// Handle textarea updates
+		// Handle boolean input updates
 		if !m.focusResults && !m.focusTextInput {
-			oldQuery := m.textarea.Value()
-			m.textarea, cmd = m.textarea.Update(msg)
-			newQuery := m.textarea.Value()
+			oldQuery := m.booleanInput.Value()
+			m.booleanInput, cmd = m.booleanInput.Update(msg)
+			newQuery := m.booleanInput.Value()
+			
+			// Update autocomplete suggestions based on current cursor position
+			m.updateAutocomplete()
 			
 			// Trigger live search if query changed
 			if newQuery != oldQuery {
@@ -192,6 +202,92 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	return cmd
+}
+
+// updateAutocomplete updates the autocomplete suggestions based on current input context
+func (m *BooleanSearchModal) updateAutocomplete() {
+	if len(m.availableTags) == 0 {
+		return
+	}
+	
+	value := m.booleanInput.Value()
+	cursorPos := m.booleanInput.Position()
+	
+	// Find the word at cursor position that we should autocomplete
+	currentWord := m.getCurrentWordForCompletion(value, cursorPos)
+	
+	if currentWord == "" {
+		// Show all tags if no current word
+		m.booleanInput.SetSuggestions(m.availableTags)
+	} else {
+		// Filter tags that start with the current word (case insensitive)
+		var filteredTags []string
+		currentWordLower := strings.ToLower(currentWord)
+		for _, tag := range m.availableTags {
+			if strings.HasPrefix(strings.ToLower(tag), currentWordLower) {
+				filteredTags = append(filteredTags, tag)
+			}
+		}
+		m.booleanInput.SetSuggestions(filteredTags)
+	}
+}
+
+// getCurrentWordForCompletion extracts the word at the cursor that should be completed
+func (m *BooleanSearchModal) getCurrentWordForCompletion(text string, cursorPos int) string {
+	if cursorPos < 0 || cursorPos > len(text) {
+		return ""
+	}
+	
+	// Find word boundaries - spaces and boolean operators
+	separators := []string{" AND ", " OR ", " NOT ", " ", "(", ")"}
+	
+	// Find start of current word
+	wordStart := 0
+	for i := cursorPos - 1; i >= 0; i-- {
+		char := string(text[i])
+		if char == " " || char == "(" || char == ")" {
+			wordStart = i + 1
+			break
+		}
+		// Check if we're at the start of a boolean operator
+		for _, sep := range separators {
+			if i >= len(sep)-1 && strings.HasSuffix(strings.ToUpper(text[:i+1]), strings.ToUpper(sep)) {
+				wordStart = i + 1
+				break
+			}
+		}
+	}
+	
+	// Find end of current word
+	wordEnd := cursorPos
+	for i := cursorPos; i < len(text); i++ {
+		char := string(text[i])
+		if char == " " || char == "(" || char == ")" {
+			wordEnd = i
+			break
+		}
+		// Check if we're at a boolean operator
+		for _, sep := range separators {
+			if i+len(sep) <= len(text) && strings.HasPrefix(strings.ToUpper(text[i:]), strings.ToUpper(sep)) {
+				wordEnd = i
+				break
+			}
+		}
+	}
+	
+	if wordEnd > len(text) {
+		wordEnd = len(text)
+	}
+	
+	word := strings.TrimSpace(text[wordStart:wordEnd])
+	
+	// Don't autocomplete boolean operators
+	upperWord := strings.ToUpper(word)
+	if upperWord == "AND" || upperWord == "OR" || upperWord == "NOT" {
+		return ""
+	}
+	
+	return word
 }
 
 // parseQuery parses a simple boolean query string into an expression
@@ -290,13 +386,13 @@ func (m *BooleanSearchModal) View() string {
 		content = append(content, tagHintStyle.Render("Available tags: "+tagsPreview))
 	}
 
-	// Boolean search textarea
-	textareaTitle := "Boolean Expression:"
+	// Boolean search input
+	booleanInputTitle := "Boolean Expression:"
 	if !m.focusTextInput && !m.focusResults {
-		textareaTitle = "▶ " + textareaTitle
+		booleanInputTitle = "▶ " + booleanInputTitle
 	}
-	content = append(content, headerStyle.Render(textareaTitle))
-	content = append(content, m.textarea.View())
+	content = append(content, headerStyle.Render(booleanInputTitle))
+	content = append(content, m.booleanInput.View())
 
 	// Text search input
 	textInputTitle := "Text Filter (optional):"
@@ -359,6 +455,7 @@ func (m *BooleanSearchModal) View() string {
 	// Help - always show essential commands, Ctrl+g expands for more
 	content = append(content, "")
 	essential := "Tab: cycle focus • Enter: search • Esc: close"
+	autocompleteHelp := "Ctrl+Space/→: accept suggestion • ↑/↓: navigate suggestions"
 	if m.showHelp {
 		// Show expanded help with examples and additional commands
 		content = append(content, headerStyle.Render("Examples:"))
@@ -370,10 +467,11 @@ func (m *BooleanSearchModal) View() string {
 		content = append(content, "")
 		content = append(content, helpStyle.Render(essential))
 		content = append(content, helpStyle.Render("↑/↓: navigate results • Ctrl+s: save search • Ctrl+g: less help"))
+		content = append(content, helpStyle.Render(autocompleteHelp))
 	} else {
 		// Show only essential commands with expand hint
 		content = append(content, helpStyle.Render(essential))
-		content = append(content, helpStyle.Render("Ctrl+g: more help"))
+		content = append(content, helpStyle.Render("Ctrl+g: more help • "+autocompleteHelp))
 	}
 
 	// Join content and apply modal styling
@@ -385,9 +483,11 @@ func (m *BooleanSearchModal) View() string {
 func (m *BooleanSearchModal) SetActive(active bool) {
 	m.isActive = active
 	if active {
-		m.textarea.Focus()
+		m.booleanInput.Focus()
 		m.focusResults = false
 		m.resultsCursor = 0
+		// Update autocomplete when activated
+		m.updateAutocomplete()
 	}
 }
 
@@ -398,8 +498,11 @@ func (m *BooleanSearchModal) SetEditMode(savedSearch *models.SavedSearch) {
 	m.expression = savedSearch.Expression
 	m.currentQuery = savedSearch.Expression.String()
 	m.textQuery = savedSearch.TextQuery
-	m.textarea.SetValue(m.currentQuery)
+	m.booleanInput.SetValue(m.currentQuery)
 	m.textInput.SetValue(m.textQuery)
+	
+	// Update autocomplete suggestions
+	m.updateAutocomplete()
 	
 	// Trigger search to show current results
 	if m.searchFunc != nil {
@@ -415,7 +518,7 @@ func (m *BooleanSearchModal) SetEditMode(savedSearch *models.SavedSearch) {
 func (m *BooleanSearchModal) ClearEditMode() {
 	m.editMode = false
 	m.originalSearch = nil
-	m.textarea.SetValue("")
+	m.booleanInput.SetValue("")
 	m.currentQuery = ""
 	m.expression = nil
 	m.searchResults = nil
@@ -495,9 +598,9 @@ func (m *BooleanSearchModal) Resize(width, height int) {
 	m.width = width
 	m.height = height
 	
-	// Adjust textarea and text input width based on modal size
+	// Adjust boolean input and text input width based on modal size
 	inputWidth := min(70, width-8)
-	m.textarea.SetWidth(inputWidth)
+	m.booleanInput.Width = inputWidth
 	m.textInput.Width = inputWidth
 }
 

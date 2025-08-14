@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,7 +14,7 @@ import (
 // SaveSearchModal provides a modal for saving boolean searches
 type SaveSearchModal struct {
 	nameInput      textinput.Model
-	expressionText textarea.Model
+	expressionText textinput.Model  // Changed from textarea to textinput for autocomplete
 	textInput      textinput.Model
 	expression     *models.BooleanExpression
 	textQuery      string
@@ -27,6 +26,7 @@ type SaveSearchModal struct {
 	editMode       bool
 	originalSearch *models.SavedSearch
 	focusIndex     int // 0=name, 1=expression, 2=text
+	availableTags  []string  // Added to store available tags for autocomplete
 	
 	// Live search functionality
 	searchFunc   func(*models.BooleanExpression) ([]*models.Prompt, error)
@@ -43,11 +43,15 @@ func NewSaveSearchModal() *SaveSearchModal {
 	nameInput.CharLimit = 50
 	nameInput.Width = 50
 
-	expressionText := textarea.New()
+	expressionText := textinput.New()
 	expressionText.Placeholder = "Enter boolean expression (tag1 AND tag2 OR tag3)"
 	expressionText.CharLimit = 500
-	expressionText.SetWidth(50)
-	expressionText.SetHeight(3)
+	expressionText.Width = 50
+	
+	// Customize keybindings to avoid Tab conflict
+	customKeyMap := textinput.DefaultKeyMap
+	customKeyMap.AcceptSuggestion = key.NewBinding(key.WithKeys("ctrl+space", "right"))
+	expressionText.KeyMap = customKeyMap
 
 	textInput := textinput.New()
 	textInput.Placeholder = "Optional: text filter"
@@ -80,6 +84,15 @@ func (m *SaveSearchModal) SetTextQuery(textQuery string) {
 // SetSearchFunc sets the callback function for live search
 func (m *SaveSearchModal) SetSearchFunc(searchFunc func(*models.BooleanExpression) ([]*models.Prompt, error)) {
 	m.searchFunc = searchFunc
+}
+
+// SetAvailableTags sets the available tags for autocomplete
+func (m *SaveSearchModal) SetAvailableTags(tags []string) {
+	m.availableTags = tags
+	if len(tags) > 0 {
+		m.expressionText.SetSuggestions(tags)
+		m.expressionText.ShowSuggestions = true
+	}
 }
 
 // parseQuery parses a simple boolean query string into an expression
@@ -191,6 +204,9 @@ func (m *SaveSearchModal) Update(msg tea.Msg) tea.Cmd {
 			m.expressionText, cmd = m.expressionText.Update(msg)
 			newQuery := m.expressionText.Value()
 			
+			// Update autocomplete suggestions based on current cursor position
+			m.updateAutocomplete()
+			
 			// Trigger live search if expression changed
 			if newQuery != oldQuery {
 				m.lastQuery = newQuery
@@ -235,6 +251,92 @@ func (m *SaveSearchModal) performLiveSearch(query string) {
 			m.matchCount = len(results)
 		}
 	}
+}
+
+// updateAutocomplete updates the autocomplete suggestions based on current input context
+func (m *SaveSearchModal) updateAutocomplete() {
+	if len(m.availableTags) == 0 {
+		return
+	}
+	
+	value := m.expressionText.Value()
+	cursorPos := m.expressionText.Position()
+	
+	// Find the word at cursor position that we should autocomplete
+	currentWord := m.getCurrentWordForCompletion(value, cursorPos)
+	
+	if currentWord == "" {
+		// Show all tags if no current word
+		m.expressionText.SetSuggestions(m.availableTags)
+	} else {
+		// Filter tags that start with the current word (case insensitive)
+		var filteredTags []string
+		currentWordLower := strings.ToLower(currentWord)
+		for _, tag := range m.availableTags {
+			if strings.HasPrefix(strings.ToLower(tag), currentWordLower) {
+				filteredTags = append(filteredTags, tag)
+			}
+		}
+		m.expressionText.SetSuggestions(filteredTags)
+	}
+}
+
+// getCurrentWordForCompletion extracts the word at the cursor that should be completed
+func (m *SaveSearchModal) getCurrentWordForCompletion(text string, cursorPos int) string {
+	if cursorPos < 0 || cursorPos > len(text) {
+		return ""
+	}
+	
+	// Find word boundaries - spaces and boolean operators
+	separators := []string{" AND ", " OR ", " NOT ", " ", "(", ")"}
+	
+	// Find start of current word
+	wordStart := 0
+	for i := cursorPos - 1; i >= 0; i-- {
+		char := string(text[i])
+		if char == " " || char == "(" || char == ")" {
+			wordStart = i + 1
+			break
+		}
+		// Check if we're at the start of a boolean operator
+		for _, sep := range separators {
+			if i >= len(sep)-1 && strings.HasSuffix(strings.ToUpper(text[:i+1]), strings.ToUpper(sep)) {
+				wordStart = i + 1
+				break
+			}
+		}
+	}
+	
+	// Find end of current word
+	wordEnd := cursorPos
+	for i := cursorPos; i < len(text); i++ {
+		char := string(text[i])
+		if char == " " || char == "(" || char == ")" {
+			wordEnd = i
+			break
+		}
+		// Check if we're at a boolean operator
+		for _, sep := range separators {
+			if i+len(sep) <= len(text) && strings.HasPrefix(strings.ToUpper(text[i:]), strings.ToUpper(sep)) {
+				wordEnd = i
+				break
+			}
+		}
+	}
+	
+	if wordEnd > len(text) {
+		wordEnd = len(text)
+	}
+	
+	word := strings.TrimSpace(text[wordStart:wordEnd])
+	
+	// Don't autocomplete boolean operators
+	upperWord := strings.ToUpper(word)
+	if upperWord == "AND" || upperWord == "OR" || upperWord == "NOT" {
+		return ""
+	}
+	
+	return word
 }
 
 // updateFocus manages focus between the three input fields
@@ -348,7 +450,9 @@ func (m *SaveSearchModal) View() string {
 	if m.editMode {
 		helpText = "Tab: next field • Enter: update • Esc: cancel"
 	}
+	autocompleteHelp := "Ctrl+Space/→: accept suggestion • ↑/↓: navigate suggestions"
 	content = append(content, helpStyle.Render(helpText))
+	content = append(content, helpStyle.Render(autocompleteHelp))
 
 	// Join content and apply modal styling
 	modalContent := lipgloss.JoinVertical(lipgloss.Left, content...)
@@ -368,6 +472,8 @@ func (m *SaveSearchModal) SetActive(active bool) {
 			m.expressionText.SetValue("")
 			m.textInput.SetValue("")
 		}
+		// Update autocomplete when activated
+		m.updateAutocomplete()
 	}
 }
 
@@ -386,6 +492,9 @@ func (m *SaveSearchModal) SetEditMode(savedSearch *models.SavedSearch, newExpres
 	
 	// Perform initial search to show current match count
 	m.performLiveSearch(queryString)
+	
+	// Update autocomplete suggestions
+	m.updateAutocomplete()
 }
 
 // ClearEditMode clears edit mode
@@ -431,7 +540,7 @@ func (m *SaveSearchModal) Resize(width, height int) {
 	// Adjust input width based on modal size
 	inputWidth := min(60, width-12)
 	m.nameInput.Width = inputWidth
-	m.expressionText.SetWidth(inputWidth)
+	m.expressionText.Width = inputWidth
 	m.textInput.Width = inputWidth
 }
 

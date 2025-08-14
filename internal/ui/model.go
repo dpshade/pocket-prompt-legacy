@@ -260,8 +260,8 @@ var keys = KeyMap{
 		key.WithHelp("Enter", "select"),
 	),
 	Back: key.NewBinding(
-		key.WithKeys("esc", "backspace"),
-		key.WithHelp("Esc/←/⌫", "back"),
+		key.WithKeys("esc"),
+		key.WithHelp("Esc", "back"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
@@ -354,15 +354,16 @@ func NewModel(svc *service.Service) (*Model, error) {
 
 	// Create viewport for preview
 	vp := viewport.New(80, 20) // Default size, will be updated on first WindowSizeMsg
-	vp.Style = lipgloss.NewStyle().
-		Padding(1, 2)
+	// Remove padding from viewport style as it interferes with content wrapping
+	vp.Style = lipgloss.NewStyle()
 
 	// Create viewport for help modal
 	helpVp := viewport.New(56, 23) // Smaller size for help modal
 	helpVp.Style = lipgloss.NewStyle()
 
 	// Create glamour renderer for markdown with improved contrast
-	renderer, err := createGlamourRenderer(80)
+	// Start with a conservative default width for better wrapping
+	renderer, err := createGlamourRenderer(60)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create glamour renderer: %w", err)
 	}
@@ -451,9 +452,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Library takes available height with consistent reservations
 			m.promptList.SetSize(msg.Width, availableHeight)
 		case ViewPromptDetail:
-			// Viewport takes available height minus metadata line
-			m.viewport.Width = msg.Width - 4  // Padding
-			m.viewport.Height = availableHeight - 2 // Reserve space for metadata line
+			// Viewport takes most of available height, account for scroll indicators and container
+			// Be more conservative with width to ensure proper wrapping
+			viewportWidth := msg.Width - 20  // More padding for cleaner wrapping
+			if viewportWidth < 40 {
+				viewportWidth = 40 // Minimum readable width
+			}
+			m.viewport.Width = viewportWidth
+			m.viewport.Height = availableHeight + 1 // Reserve space for scroll indicators
+			// Also update the glamour renderer immediately with the new width
+			if viewportWidth > 0 {
+				if renderer, err := createGlamourRenderer(viewportWidth); err == nil {
+					m.glamourRenderer = renderer
+				}
+			}
 		case ViewCreateFromScratch, ViewCreateFromTemplate, ViewEditPrompt:
 			if m.createForm != nil {
 				m.createForm.Resize(msg.Width, availableHeight)
@@ -478,13 +490,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpViewport.Width = helpWidth - 4  // Account for modal padding and border
 		m.helpViewport.Height = helpHeight - 4 // Account for modal padding and border
 
-		// Update glamour renderer width for detail view
-		glamourWidth := m.width - 8 // Account for padding
-		if glamourWidth > 0 {
-			renderer, err := createGlamourRenderer(glamourWidth)
-			if err == nil {
-				m.glamourRenderer = renderer
-			}
+		// Re-render content if we're in prompt detail view and have content
+		if m.viewMode == ViewPromptDetail && m.selectedPrompt != nil {
+			m.renderPreview()
 		}
 
 	case tea.KeyMsg:
@@ -552,18 +560,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.saveSearchModal == nil {
 					m.saveSearchModal = NewSaveSearchModal()
 					m.saveSearchModal.SetSearchFunc(m.service.SearchPromptsByBooleanExpression)
+					// Set available tags for autocomplete
+					if tags, err := m.service.GetAllTags(); err == nil {
+						m.saveSearchModal.SetAvailableTags(tags)
+					}
 				}
-				m.saveSearchModal.SetExpression(m.booleanSearchModal.GetExpression())
-				m.saveSearchModal.SetTextQuery(m.booleanSearchModal.GetTextQuery())
+				// Activate the modal first (before setting values to avoid clearing them)
+				m.saveSearchModal.SetActive(true)
 				
-				// If editing, pre-populate the save modal with existing search info
+				// If editing, set edit mode first
 				if m.booleanSearchModal.IsEditMode() {
 					if originalSearch := m.booleanSearchModal.GetOriginalSearch(); originalSearch != nil {
 						m.saveSearchModal.SetEditMode(originalSearch, m.booleanSearchModal.GetExpression())
 					}
+				} else {
+					// For new saves, set the current boolean expression and text query
+					m.saveSearchModal.SetExpression(m.booleanSearchModal.GetExpression())
+					m.saveSearchModal.SetTextQuery(m.booleanSearchModal.GetTextQuery())
 				}
-				
-				m.saveSearchModal.SetActive(true)
 				return m, nil
 			}
 			
@@ -735,12 +749,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.promptList.FilterState() == list.Filtering {
-			// Let the list handle filtering
-			newListModel, cmd := m.promptList.Update(msg)
-			m.promptList = newListModel
-			return m, cmd
-		}
 
 		// Reset delete confirmation for any key except Ctrl+D
 		if msg.String() != "ctrl+d" {
@@ -935,6 +943,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 
 		case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Left):
+			// Don't navigate back with left arrow if actively editing in a text field
+			if key.Matches(msg, m.keys.Left) {
+				switch m.viewMode {
+				case ViewEditPrompt:
+					if m.createForm != nil && m.createForm.IsInTextInputField() {
+						// Let the form handle the left arrow for cursor movement
+						return m, nil
+					}
+				case ViewEditTemplate:
+					if m.templateForm != nil && m.templateForm.IsInTextInputField() {
+						// Let the template form handle the left arrow for cursor movement
+						return m, nil
+					}
+				case ViewCreateFromScratch, ViewCreateFromTemplate:
+					if m.createForm != nil && m.createForm.IsInTextInputField() {
+						// Let the form handle the left arrow for cursor movement
+						return m, nil
+					}
+				}
+			}
+			
 			switch m.viewMode {
 			case ViewCreateMenu, ViewCreateFromScratch, ViewCreateFromTemplate, ViewTemplateList:
 				if m.viewMode == ViewTemplateList || m.viewMode == ViewCreateFromTemplate {
@@ -998,6 +1027,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.selectedPrompt = fullPrompt
 						m.createForm = NewCreateForm()
+						// Set available tags for autocomplete
+						if tags, err := m.service.GetAllTags(); err == nil {
+							m.createForm.SetAvailableTags(tags)
+						}
 						m.createForm.LoadPrompt(fullPrompt)
 						m.editMode = true
 						m.viewMode = ViewEditPrompt
@@ -1006,6 +1039,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewPromptDetail:
 				if m.selectedPrompt != nil {
 					m.createForm = NewCreateForm()
+					// Set available tags for autocomplete
+					if tags, err := m.service.GetAllTags(); err == nil {
+						m.createForm.SetAvailableTags(tags)
+					}
 					m.createForm.LoadPrompt(m.selectedPrompt)
 					m.editMode = true
 					m.viewMode = ViewEditPrompt
@@ -1027,6 +1064,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if m.saveSearchModal == nil {
 								m.saveSearchModal = NewSaveSearchModal()
 								m.saveSearchModal.SetSearchFunc(m.service.SearchPromptsByBooleanExpression)
+								// Set available tags for autocomplete
+								if tags, err := m.service.GetAllTags(); err == nil {
+									m.saveSearchModal.SetAvailableTags(tags)
+								}
 							}
 							m.saveSearchModal.Resize(m.width, m.height)
 							m.saveSearchModal.SetEditMode(&savedSearch, savedSearch.Expression)
@@ -1171,6 +1212,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update the appropriate component based on view mode
 	switch m.viewMode {
 	case ViewLibrary:
+		// Handle wraparound navigation when not actively typing in filter
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && !m.promptList.SettingFilter() {
+			// Get the visible items (filtered items if filter is applied, all items if not)
+			visibleItems := m.promptList.VisibleItems()
+			visibleCount := len(visibleItems)
+			
+			if visibleCount > 0 {
+				switch keyMsg.String() {
+				case "up", "k":
+					if m.promptList.Index() == 0 {
+						// At top, wrap to bottom of visible items
+						m.promptList.Select(visibleCount - 1)
+						return m, nil
+					}
+				case "down", "j":
+					if m.promptList.Index() == visibleCount-1 {
+						// At bottom of visible items, wrap to top
+						m.promptList.Select(0)
+						return m, nil
+					}
+				}
+			}
+		}
+		
 		newListModel, cmd := m.promptList.Update(msg)
 		m.promptList = newListModel
 		cmds = append(cmds, cmd)
@@ -1209,6 +1274,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case "scratch":
 						m.viewMode = ViewCreateFromScratch
 						m.createForm = NewCreateFormFromScratch()
+						// Set available tags for autocomplete
+						if tags, err := m.service.GetAllTags(); err == nil {
+							m.createForm.SetAvailableTags(tags)
+						}
 					case "template":
 						// Initialize template selection
 						if len(m.templates) > 0 {
@@ -1496,7 +1565,7 @@ func (m Model) renderLibraryView() string {
 	
 	elements = append(elements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, elements...)
+	return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, elements...))
 }
 
 // renderPromptDetailView renders the selected prompt in full-page view
@@ -1530,16 +1599,31 @@ func (m Model) renderPromptDetailView() string {
 	additional := []string{"y copy JSON • x export • Esc back"}
 	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
-	// Content viewport
-	content := m.viewport.View()
+	// Check scroll state and create indicators
+	canScrollUp := !m.viewport.AtTop()
+	canScrollDown := !m.viewport.AtBottom()
+	topIndicator, bottomIndicator := CreateScrollIndicators(canScrollUp, canScrollDown, m.width-4)
+	
+	// Build content with scroll indicators
+	var contentElements []string
+	
+	// Add top scroll indicator
+	contentElements = append(contentElements, topIndicator)
+	
+	// Add main content
+	contentElements = append(contentElements, m.viewport.View())
+	
+	// Add bottom scroll indicator  
+	contentElements = append(contentElements, bottomIndicator)
+	
+	// Wrap everything in the container
+	content := StyleContentContainer.Render(lipgloss.JoinVertical(lipgloss.Left, contentElements...))
 
 	return AddMainPadding(lipgloss.JoinVertical(
 		lipgloss.Left,
 		headerLine,
 		metadataLine,
-		"",
 		content,
-		"",
 		help,
 	))
 }
@@ -1580,7 +1664,7 @@ func (m Model) renderCreateFromScratchView() string {
 	headerLine := CreateSubPageHeader( "Create from Scratch")
 
 	if m.createForm == nil {
-		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
+		return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available"))
 	}
 
 	// Build form fields (same as edit form but without ID field)

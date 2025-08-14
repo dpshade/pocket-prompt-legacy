@@ -222,6 +222,15 @@ var (
 	StyleContainer = lipgloss.NewStyle().
 		Padding(1, 2)
 	
+	// Content container for prompt previews
+	StyleContentContainer = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder).
+		Padding(1, 2).
+		Background(ColorSurface).
+		MarginTop(1).
+		MarginBottom(1)
+	
 	// Form styles
 	StyleFormLabel = lipgloss.NewStyle().
 		Foreground(ColorText).
@@ -253,6 +262,17 @@ var (
 		Foreground(ColorAccent).
 		Background(ColorOverlay).
 		Padding(0, 1)
+	
+	// Scroll indicators
+	StyleScrollIndicator = lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Bold(false).
+		Align(lipgloss.Center)
+	
+	StyleScrollIndicatorActive = lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		Align(lipgloss.Center)
 )
 
 // Helper functions for consistent styling
@@ -418,16 +438,37 @@ func CenterModal(content string, width, height int) string {
 	)
 }
 
-// Add consistent left padding to main content
+// Add consistent padding to main content (left only, no top padding)
 func AddMainPadding(content string) string {
 	paddingStyle := lipgloss.NewStyle().
-		PaddingLeft(2) // 2 spaces of left padding
+		PaddingLeft(2)    // 2 spaces of left padding only
 	return paddingStyle.Render(content)
 }
 
-// Add consistent left padding to form content (slightly more for nested content)
+// Add consistent padding to form content (left only, no top padding)
 func AddFormPadding(content string) string {
 	paddingStyle := lipgloss.NewStyle().
-		PaddingLeft(3) // 3 spaces for form content
+		PaddingLeft(3)    // 3 spaces for form content only
 	return paddingStyle.Render(content)
+}
+
+// Create scroll indicators based on scroll state
+func CreateScrollIndicators(canScrollUp, canScrollDown bool, width int) (string, string) {
+	// Top indicator
+	var topIndicator string
+	if canScrollUp {
+		topIndicator = StyleScrollIndicatorActive.Render("...")
+	} else {
+		topIndicator = StyleScrollIndicator.Render("─────────")
+	}
+	
+	// Bottom indicator  
+	var bottomIndicator string
+	if canScrollDown {
+		bottomIndicator = StyleScrollIndicatorActive.Render("...")
+	} else {
+		bottomIndicator = StyleScrollIndicator.Render("─────────")
+	}
+	
+	return topIndicator, bottomIndicator
 }
