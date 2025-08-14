@@ -1,0 +1,12 @@
+Starting URL server for iOS Shortcuts integration...
+2025/08/14 01:48:51 URL server starting on http://localhost:8080
+2025/08/14 01:48:51 iOS Shortcuts can now call URLs like:
+2025/08/14 01:48:51   http://localhost:8080/pocket-prompt/render/my-prompt-id
+2025/08/14 01:48:51   http://localhost:8080/pocket-prompt/search?q=AI
+2025/08/14 01:48:51   http://localhost:8080/pocket-prompt/boolean?expr=ai+AND+analysis
+2025/08/14 01:48:51   http://localhost:8080/help - API documentation
+2025/08/14 01:48:51 Git sync enabled: pulling changes every 5m0s
+2025/08/14 01:48:51 Performing git sync...
+2025/08/14 01:48:51 Git pull failed: git sync is not enabled
+2025/08/14 01:48:57 API: API documentation (returned 4060 bytes)
+2025/08/14 01:49:05 API: API documentation (returned 4060 bytes)

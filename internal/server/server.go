@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/dpshade/pocket-prompt/internal/clipboard"
 	"github.com/dpshade/pocket-prompt/internal/models"
 	"github.com/dpshade/pocket-prompt/internal/renderer"
 	"github.com/dpshade/pocket-prompt/internal/service"
@@ -17,22 +17,38 @@ import (
 
 // URLServer provides HTTP endpoints for iOS Shortcuts integration
 type URLServer struct {
-	service *service.Service
-	port    int
+	service    *service.Service
+	port       int
+	syncInterval time.Duration
+	gitSync    bool
 }
 
 // NewURLServer creates a new URL server instance
 func NewURLServer(svc *service.Service, port int) *URLServer {
 	return &URLServer{
-		service: svc,
-		port:    port,
+		service:      svc,
+		port:         port,
+		syncInterval: 5 * time.Minute, // Default: sync every 5 minutes
+		gitSync:      true,             // Enable git sync by default
 	}
+}
+
+// SetSyncInterval configures how often to pull git changes
+func (s *URLServer) SetSyncInterval(interval time.Duration) {
+	s.syncInterval = interval
+}
+
+// SetGitSync enables or disables periodic git synchronization
+func (s *URLServer) SetGitSync(enabled bool) {
+	s.gitSync = enabled
 }
 
 // Start begins serving HTTP requests
 func (s *URLServer) Start() error {
 	http.HandleFunc("/pocket-prompt/", s.handlePocketPrompt)
 	http.HandleFunc("/health", s.handleHealth)
+	http.HandleFunc("/help", s.handleAPIHelp)
+	http.HandleFunc("/api", s.handleAPIHelp) // Alternative endpoint
 	
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("URL server starting on http://localhost%s", addr)
@@ -40,6 +56,15 @@ func (s *URLServer) Start() error {
 	log.Printf("  http://localhost%s/pocket-prompt/render/my-prompt-id", addr)
 	log.Printf("  http://localhost%s/pocket-prompt/search?q=AI", addr)
 	log.Printf("  http://localhost%s/pocket-prompt/boolean?expr=ai+AND+analysis", addr)
+	log.Printf("  http://localhost%s/help - API documentation", addr)
+	
+	// Start periodic git sync if enabled
+	if s.gitSync {
+		log.Printf("Git sync enabled: pulling changes every %v", s.syncInterval)
+		go s.startPeriodicSync()
+	} else {
+		log.Printf("Git sync disabled")
+	}
 	
 	return http.ListenAndServe(addr, nil)
 }
@@ -159,7 +184,7 @@ func (s *URLServer) handleRender(w http.ResponseWriter, r *http.Request, parts [
 		return
 	}
 
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Rendered prompt: %s", promptID))
+	s.writeContentResponse(w, content, fmt.Sprintf("Rendered prompt: %s", promptID))
 }
 
 // handleGet retrieves a specific prompt
@@ -189,7 +214,7 @@ func (s *URLServer) handleGet(w http.ResponseWriter, r *http.Request, parts []st
 			strings.Join(prompt.Tags, ", "), prompt.Content)
 	}
 
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Retrieved prompt: %s", promptID))
+	s.writeContentResponse(w, content, fmt.Sprintf("Retrieved prompt: %s", promptID))
 }
 
 // handleList lists all prompts
@@ -220,7 +245,7 @@ func (s *URLServer) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := s.formatPrompts(prompts, format)
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Listed %d prompts", len(prompts)))
+	s.writeContentResponse(w, content, fmt.Sprintf("Listed %d prompts", len(prompts)))
 }
 
 // handleSearch performs fuzzy text search
@@ -263,7 +288,7 @@ func (s *URLServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := s.formatPrompts(prompts, format)
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Found %d prompts for '%s'", len(prompts), query))
+	s.writeContentResponse(w, content, fmt.Sprintf("Found %d prompts for '%s'", len(prompts), query))
 }
 
 // handleBooleanSearch performs boolean expression search
@@ -298,7 +323,7 @@ func (s *URLServer) handleBooleanSearch(w http.ResponseWriter, r *http.Request) 
 	}
 
 	content := s.formatPrompts(prompts, format)
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Boolean search found %d prompts", len(prompts)))
+	s.writeContentResponse(w, content, fmt.Sprintf("Boolean search found %d prompts", len(prompts)))
 }
 
 // handleSavedSearch executes a saved search
@@ -318,7 +343,7 @@ func (s *URLServer) handleSavedSearch(w http.ResponseWriter, r *http.Request, pa
 	}
 
 	content := s.formatPrompts(prompts, format)
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Saved search '%s' found %d prompts", searchName, len(prompts)))
+	s.writeContentResponse(w, content, fmt.Sprintf("Saved search '%s' found %d prompts", searchName, len(prompts)))
 }
 
 // handleSavedSearches lists saved searches
@@ -341,7 +366,7 @@ func (s *URLServer) handleSavedSearches(w http.ResponseWriter, r *http.Request, 
 			content.WriteString(fmt.Sprintf("%s: %s\n", search.Name, search.Expression.String()))
 		}
 
-		s.writeToClipboardAndRespond(w, content.String(), fmt.Sprintf("Listed %d saved searches", len(searches)))
+		s.writeContentResponse(w, content.String(), fmt.Sprintf("Listed %d saved searches", len(searches)))
 	default:
 		s.writeError(w, fmt.Sprintf("Unknown saved searches operation: %s", operation), http.StatusNotFound)
 	}
@@ -356,7 +381,7 @@ func (s *URLServer) handleTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := strings.Join(tags, "\n")
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Listed %d tags", len(tags)))
+	s.writeContentResponse(w, content, fmt.Sprintf("Listed %d tags", len(tags)))
 }
 
 // handleTag lists prompts with a specific tag
@@ -376,7 +401,7 @@ func (s *URLServer) handleTag(w http.ResponseWriter, r *http.Request, parts []st
 	}
 
 	content := s.formatPrompts(prompts, format)
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Tag '%s' has %d prompts", tagName, len(prompts)))
+	s.writeContentResponse(w, content, fmt.Sprintf("Tag '%s' has %d prompts", tagName, len(prompts)))
 }
 
 // handleTemplates lists all templates
@@ -412,7 +437,7 @@ func (s *URLServer) handleTemplates(w http.ResponseWriter, r *http.Request) {
 		content = strings.Join(lines, "\n\n")
 	}
 
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Listed %d templates", len(templates)))
+	s.writeContentResponse(w, content, fmt.Sprintf("Listed %d templates", len(templates)))
 }
 
 // handleTemplate gets a specific template
@@ -458,7 +483,7 @@ func (s *URLServer) handleTemplate(w http.ResponseWriter, r *http.Request, parts
 		}
 	}
 
-	s.writeToClipboardAndRespond(w, content, fmt.Sprintf("Retrieved template: %s", templateID))
+	s.writeContentResponse(w, content, fmt.Sprintf("Retrieved template: %s", templateID))
 }
 
 // formatPrompts formats a list of prompts for output
@@ -502,25 +527,22 @@ func (s *URLServer) formatPrompts(prompts []*models.Prompt, format string) strin
 	}
 }
 
-// writeToClipboardAndRespond puts content in clipboard and sends success response
-func (s *URLServer) writeToClipboardAndRespond(w http.ResponseWriter, content, message string) {
-	// Copy to clipboard
-	if statusMsg, err := clipboard.CopyWithFallback(content); err != nil {
-		log.Printf("Warning: failed to copy to clipboard: %v", err)
-		// Continue anyway - content might still be useful
-	} else {
-		log.Printf("Clipboard: %s", statusMsg)
+// writeContentResponse sends content directly in response body
+func (s *URLServer) writeContentResponse(w http.ResponseWriter, content, message string) {
+	// Determine content type based on content
+	contentType := "text/plain; charset=utf-8"
+	if strings.HasPrefix(strings.TrimSpace(content), "{") || strings.HasPrefix(strings.TrimSpace(content), "[") {
+		contentType = "application/json; charset=utf-8"
 	}
-
-	// Send success response
-	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
-		"success": true,
-		"message": message,
-		"clipboard": "Content copied to clipboard",
-		"length": len(content),
-	}
-	json.NewEncoder(w).Encode(response)
+	
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Message", message)
+	w.Header().Set("X-Content-Length", fmt.Sprintf("%d", len(content)))
+	
+	// Write content directly to response
+	w.Write([]byte(content))
+	
+	log.Printf("API: %s (returned %d bytes)", message, len(content))
 }
 
 // writeError sends an error response
@@ -581,4 +603,248 @@ func (s *URLServer) parseBooleanExpression(expr string) (*models.BooleanExpressi
 	
 	// Single tag expression
 	return models.NewTagExpression(expr), nil
+}
+
+// startPeriodicSync runs git pull operations at regular intervals
+func (s *URLServer) startPeriodicSync() {
+	ticker := time.NewTicker(s.syncInterval)
+	defer ticker.Stop()
+	
+	// Perform initial sync
+	s.performGitSync()
+	
+	for {
+		select {
+		case <-ticker.C:
+			s.performGitSync()
+		}
+	}
+}
+
+// performGitSync pulls changes from git and refreshes the service
+func (s *URLServer) performGitSync() {
+	log.Printf("Performing git sync...")
+	
+	// Check if git sync is available
+	status, err := s.service.GetGitSyncStatus()
+	if err != nil {
+		log.Printf("Git sync not available: %v", err)
+		return
+	}
+	
+	if status == "Git sync not configured" {
+		log.Printf("Git sync not configured, skipping...")
+		return
+	}
+	
+	// Attempt to pull changes
+	err = s.service.PullGitChanges()
+	if err != nil {
+		log.Printf("Git pull failed: %v", err)
+		return
+	}
+	
+	// Note: The service automatically reloads prompts when needed
+	// No explicit refresh required as storage operations handle updates
+	
+	log.Printf("Git sync completed successfully")
+}
+
+// handleAPIHelp provides comprehensive API documentation
+func (s *URLServer) handleAPIHelp(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	
+	helpContent := `# Pocket Prompt HTTP API Documentation
+
+Base URL: http://localhost:` + fmt.Sprintf("%d", s.port) + `
+
+## Endpoints
+
+### Prompt Operations
+
+#### Render Prompt
+GET /pocket-prompt/render/{id}?var1=value&var2=test&format=text
+- Renders a prompt with optional variable substitution
+- Variables: Pass as query parameters (var1=value&var2=test)
+- Format: text (default), json
+
+#### Get Prompt Details  
+GET /pocket-prompt/get/{id}?format=text
+- Retrieves prompt metadata and content
+- Format: text (default), json
+
+#### List All Prompts
+GET /pocket-prompt/list?format=text&limit=10&tag=ai
+- Lists prompts with optional filtering
+- Parameters:
+  - format: text (default), json, ids, table
+  - limit: maximum number of results
+  - tag: filter by specific tag
+
+### Search Operations
+
+#### Fuzzy Search
+GET /pocket-prompt/search?q=machine+learning&format=text&limit=5
+- Searches prompts using fuzzy matching
+- Parameters:
+  - q: search query (required)
+  - format: text (default), json, ids, table
+  - limit: maximum results
+  - tag: filter by tag
+
+#### Boolean Search
+GET /pocket-prompt/boolean?expr=ai+AND+analysis
+- Advanced tag-based search with logical operators
+- Parameters:
+  - expr: boolean expression (required)
+  - format: text (default), json, ids, table
+- Operators: AND, OR, NOT, parentheses for grouping
+
+#### Saved Searches
+GET /pocket-prompt/saved-search/{name}
+- Execute a previously saved boolean search
+- Format options available
+
+GET /pocket-prompt/saved-searches/list
+- List all saved boolean searches
+
+### Tag Operations
+
+#### List All Tags
+GET /pocket-prompt/tags
+- Returns all available tags, one per line
+
+#### Filter by Tag
+GET /pocket-prompt/tag/{tag-name}?format=ids
+- Get all prompts with specific tag
+- Format options available
+
+### Template Operations
+
+#### List Templates
+GET /pocket-prompt/templates?format=json
+- Lists all available templates
+- Format options available
+
+#### Get Template
+GET /pocket-prompt/template/{id}
+- Retrieve specific template details
+- Format options available
+
+### System Operations
+
+#### Health Check
+GET /health
+- Returns server status and basic info
+
+#### API Documentation
+GET /help or GET /api
+- Returns this documentation
+- Add ?format=json for JSON response
+
+## Response Formats
+
+All endpoints support these format options via ?format= parameter:
+
+- **text** (default): Human-readable plain text
+- **json**: Structured JSON data
+- **ids**: Prompt/template IDs only (one per line)
+- **table**: Formatted table view
+
+## Headers
+
+Responses include helpful headers:
+- Content-Type: text/plain or application/json
+- X-Message: Description of the operation
+- X-Content-Length: Response size in bytes
+
+## iOS Shortcuts Integration
+
+Perfect for iOS Shortcuts automation:
+
+1. **Get Contents of URL** action
+2. **Use response content** directly
+3. **Process with Split Text** for lists
+4. **Pass to AI apps** like ChatGPT, Claude
+
+## Examples
+
+### Basic Usage
+- Get a prompt: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/render/my-prompt
+- Search for AI prompts: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/search?q=AI&format=ids
+- Boolean search: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/boolean?expr=python+AND+tutorial
+- List tags: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/tags
+
+### With Variables
+- Render with variables: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/render/analysis?topic=AI&depth=3
+- Get JSON data: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/list?format=json&limit=5
+
+### iOS Shortcuts Workflow
+1. Ask for Input: "Search term"
+2. Get Contents of URL: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/search?q=[input]&format=ids
+3. Split Text by new lines
+4. Choose from Menu
+5. Get Contents of URL: http://localhost:` + fmt.Sprintf("%d", s.port) + `/pocket-prompt/render/[chosen-item]
+6. Use in AI app
+
+## Server Configuration
+
+Current settings:
+- Port: ` + fmt.Sprintf("%d", s.port) + `
+- Git Sync: ` + fmt.Sprintf("%t", s.gitSync) + `
+- Sync Interval: ` + s.syncInterval.String() + `
+
+## Need Help?
+
+- Start server: pocket-prompt --url-server
+- Custom port: pocket-prompt --url-server --port 9000
+- Disable git sync: pocket-prompt --url-server --no-git-sync
+- Custom sync interval: pocket-prompt --url-server --sync-interval 1
+
+For more information: https://github.com/dpshade/pocket-prompt
+`
+
+	if format == "json" {
+		// Return structured JSON documentation
+		apiDoc := map[string]interface{}{
+			"base_url": fmt.Sprintf("http://localhost:%d", s.port),
+			"endpoints": map[string]interface{}{
+				"prompts": map[string]string{
+					"render": "/pocket-prompt/render/{id}?var1=value&format=text",
+					"get":    "/pocket-prompt/get/{id}?format=text",
+					"list":   "/pocket-prompt/list?format=text&limit=10&tag=ai",
+				},
+				"search": map[string]string{
+					"fuzzy":   "/pocket-prompt/search?q=query&format=text",
+					"boolean": "/pocket-prompt/boolean?expr=ai+AND+analysis",
+					"saved":   "/pocket-prompt/saved-search/{name}",
+				},
+				"tags": map[string]string{
+					"list":   "/pocket-prompt/tags",
+					"filter": "/pocket-prompt/tag/{tag-name}?format=ids",
+				},
+				"templates": map[string]string{
+					"list": "/pocket-prompt/templates?format=json",
+					"get":  "/pocket-prompt/template/{id}",
+				},
+				"system": map[string]string{
+					"health": "/health",
+					"help":   "/help",
+				},
+			},
+			"formats": []string{"text", "json", "ids", "table"},
+			"config": map[string]interface{}{
+				"port":          s.port,
+				"git_sync":      s.gitSync,
+				"sync_interval": s.syncInterval.String(),
+			},
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(apiDoc)
+		return
+	}
+	
+	// Return markdown documentation
+	s.writeContentResponse(w, helpContent, "API documentation")
 }

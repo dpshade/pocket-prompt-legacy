@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/dpshade/pocket-prompt/internal/cli"
 	"github.com/dpshade/pocket-prompt/internal/server"
@@ -27,6 +28,8 @@ OPTIONS:
     --init          Initialize a new prompt library
     --url-server    Start URL server for iOS Shortcuts integration
     --port          Port for URL server (default: 8080)
+    --sync-interval Git sync interval in minutes (default: 5, 0 to disable)
+    --no-git-sync   Disable periodic git synchronization
 
 COMMANDS:
     (no command)       Start interactive TUI mode
@@ -54,6 +57,8 @@ EXAMPLES:
     pocket-prompt --init                             # Initialize new library
     pocket-prompt --url-server                       # Start URL server for iOS
     pocket-prompt --url-server --port 9000          # Start server on port 9000
+    pocket-prompt --url-server --sync-interval 1    # Sync every 1 minute
+    pocket-prompt --url-server --no-git-sync        # Disable git sync
     pocket-prompt list --format table               # List prompts in table format
     pocket-prompt search "machine learning"         # Search prompts
     pocket-prompt create my-prompt --title "Test"   # Create new prompt
@@ -78,12 +83,16 @@ func main() {
 	var showHelp bool
 	var urlServer bool
 	var port int
+	var syncInterval int
+	var noGitSync bool
 
 	flag.BoolVar(&showVersion, "version", false, "Print version information")
 	flag.BoolVar(&initLib, "init", false, "Initialize a new prompt library")
 	flag.BoolVar(&showHelp, "help", false, "Show help information")
 	flag.BoolVar(&urlServer, "url-server", false, "Start URL server for iOS Shortcuts integration")
 	flag.IntVar(&port, "port", 8080, "Port for URL server")
+	flag.IntVar(&syncInterval, "sync-interval", 5, "Git sync interval in minutes (0 to disable)")
+	flag.BoolVar(&noGitSync, "no-git-sync", false, "Disable periodic git synchronization")
 	flag.Parse()
 
 	if showHelp {
@@ -115,6 +124,15 @@ func main() {
 	if urlServer {
 		fmt.Printf("Starting URL server for iOS Shortcuts integration...\n")
 		urlSrv := server.NewURLServer(svc, port)
+		
+		// Configure git sync
+		if noGitSync || syncInterval == 0 {
+			urlSrv.SetGitSync(false)
+		} else {
+			urlSrv.SetGitSync(true)
+			urlSrv.SetSyncInterval(time.Duration(syncInterval) * time.Minute)
+		}
+		
 		if err := urlSrv.Start(); err != nil {
 			fmt.Printf("Error starting URL server: %v\n", err)
 			os.Exit(1)

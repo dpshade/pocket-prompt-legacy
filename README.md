@@ -455,7 +455,7 @@ iOS Shortcuts can now call URLs like:
 
 ### API Endpoints
 
-All endpoints return JSON responses and automatically copy results to clipboard for iOS Shortcuts integration.
+All endpoints return content directly in the response body with appropriate content types (text/plain or application/json).
 
 #### Prompt Operations
 ```bash
@@ -514,30 +514,29 @@ Control output format with the `format` parameter:
 
 ### iOS Shortcuts Integration
 
-The API is designed specifically for iOS Shortcuts with clipboard-based responses:
+The API returns content directly in HTTP responses, perfect for iOS Shortcuts:
 
 #### Basic Prompt Access
 1. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/render/my-prompt`
-2. **Get Clipboard** - Contains the rendered prompt
-3. **Use clipboard content** in ChatGPT, Claude, or other apps
+2. **Use response content** directly in ChatGPT, Claude, or other apps
 
 #### Search and Select Workflow
 1. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/search?q=AI&format=ids`
-2. **Get Clipboard** - Contains list of matching prompt IDs
+2. **Split Text** by new lines to get prompt IDs
 3. **Choose from Menu** - Select a prompt ID
 4. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/render/[chosen-id]`
-5. **Get Clipboard** - Contains the rendered prompt
+5. **Use response content** as your prompt
 
 #### Advanced Boolean Search
 1. **Text Input**: Enter boolean expression like `(ai AND analysis) OR writing`
 2. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/boolean?expr=[encoded-expression]`
-3. **Get Clipboard** - Contains matching prompts
+3. **Process response content** - matching prompts returned directly
 
 #### Variable-Based Rendering
 1. **Ask for Input**: "Topic"
 2. **Ask for Input**: "Detail Level"  
 3. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/render/analysis?topic=[input1]&depth=[input2]`
-4. **Get Clipboard** - Contains customized prompt
+4. **Use response content** - customized prompt ready for AI
 
 ### Example iOS Shortcuts
 
@@ -554,8 +553,19 @@ The API is designed specifically for iOS Shortcuts with clipboard-based response
 
 - **Localhost only** - No external network access required
 - **No authentication** - Designed for local use
-- **Clipboard-based** - Secure data exchange
+- **Direct HTTP responses** - Standard REST API pattern
 - **Works offline** - No internet dependency
+- **Automatic git sync** - Keeps prompts updated every 5 minutes (configurable)
+
+### API Documentation
+
+```bash
+GET /help or GET /api
+# Returns comprehensive API documentation in markdown format
+
+GET /help?format=json  
+# Returns structured JSON documentation with all endpoints
+```
 
 ### Health Check
 
