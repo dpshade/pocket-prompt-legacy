@@ -11,6 +11,7 @@ A unified place to keep LLM context - a single-binary, portable prompt interface
 - **Template System**: Reusable templates for consistent prompt structures
 - **Fuzzy Search**: Quickly find prompts with fuzzy matching
 - **Boolean Search**: Advanced tag-based search with AND/OR/NOT operators
+- **HTTP API Server**: URL-based access for iOS Shortcuts and automation
 - **Advanced Git Sync**: Automatic conflict resolution and background synchronization for multi-machine workflows
 - **Portable**: Single binary with no external dependencies
 - **Git-Friendly**: Plain text files that work perfectly with version control
@@ -71,6 +72,7 @@ pocket-prompt list              # List all prompts
 pocket-prompt search "AI"       # Search for prompts
 pocket-prompt show prompt-id    # Display a specific prompt
 pocket-prompt copy prompt-id    # Copy to clipboard
+pocket-prompt --url-server      # Start HTTP API for iOS Shortcuts
 ```
 
 3. Navigate with keyboard shortcuts:
@@ -431,6 +433,137 @@ pocket-prompt git sync        # Manual sync
 pocket-prompt git pull        # Pull remote changes
 ```
 
+## HTTP API Server
+
+Pocket Prompt includes a built-in HTTP API server perfect for **iOS Shortcuts integration** and automation workflows. The server provides URL-based access to all prompt operations with clipboard-based responses for seamless mobile integration.
+
+### Starting the Server
+
+```bash
+pocket-prompt --url-server                    # Start on default port 8080
+pocket-prompt --url-server --port 9000        # Start on custom port
+```
+
+The server provides helpful startup information:
+```
+URL server starting on http://localhost:8080
+iOS Shortcuts can now call URLs like:
+  http://localhost:8080/pocket-prompt/render/my-prompt-id
+  http://localhost:8080/pocket-prompt/search?q=AI
+  http://localhost:8080/pocket-prompt/boolean?expr=ai+AND+analysis
+```
+
+### API Endpoints
+
+All endpoints return JSON responses and automatically copy results to clipboard for iOS Shortcuts integration.
+
+#### Prompt Operations
+```bash
+# List all prompts
+GET /pocket-prompt/list?format=json&limit=10&tag=ai
+
+# Search prompts (fuzzy search)
+GET /pocket-prompt/search?q=machine+learning&format=table&limit=5
+
+# Get specific prompt
+GET /pocket-prompt/get/my-prompt-id?format=json
+
+# Render prompt with variables
+GET /pocket-prompt/render/my-prompt-id?var1=value&var2=test&format=text
+```
+
+#### Search Operations
+```bash
+# Boolean expression search
+GET /pocket-prompt/boolean?expr=ai+AND+analysis
+GET /pocket-prompt/boolean?expr=(python+OR+javascript)+AND+tutorial
+
+# Execute saved search
+GET /pocket-prompt/saved-search/my-saved-search
+
+# List all saved searches
+GET /pocket-prompt/saved-searches/list
+```
+
+#### Tag Operations
+```bash
+# List all tags
+GET /pocket-prompt/tags
+
+# Get prompts with specific tag
+GET /pocket-prompt/tag/python?format=ids
+```
+
+#### Template Operations
+```bash
+# List all templates
+GET /pocket-prompt/templates?format=json
+
+# Get specific template
+GET /pocket-prompt/template/my-template-id
+```
+
+### Response Formats
+
+Control output format with the `format` parameter:
+
+- `format=text` (default) - Human-readable text
+- `format=json` - JSON structure
+- `format=ids` - Just prompt/template IDs
+- `format=table` - Formatted table view
+
+### iOS Shortcuts Integration
+
+The API is designed specifically for iOS Shortcuts with clipboard-based responses:
+
+#### Basic Prompt Access
+1. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/render/my-prompt`
+2. **Get Clipboard** - Contains the rendered prompt
+3. **Use clipboard content** in ChatGPT, Claude, or other apps
+
+#### Search and Select Workflow
+1. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/search?q=AI&format=ids`
+2. **Get Clipboard** - Contains list of matching prompt IDs
+3. **Choose from Menu** - Select a prompt ID
+4. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/render/[chosen-id]`
+5. **Get Clipboard** - Contains the rendered prompt
+
+#### Advanced Boolean Search
+1. **Text Input**: Enter boolean expression like `(ai AND analysis) OR writing`
+2. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/boolean?expr=[encoded-expression]`
+3. **Get Clipboard** - Contains matching prompts
+
+#### Variable-Based Rendering
+1. **Ask for Input**: "Topic"
+2. **Ask for Input**: "Detail Level"  
+3. **Get Contents of URL**: `http://localhost:8080/pocket-prompt/render/analysis?topic=[input1]&depth=[input2]`
+4. **Get Clipboard** - Contains customized prompt
+
+### Example iOS Shortcuts
+
+**Quick AI Prompt**: 
+- Choose from predefined prompt list → Render → Copy to AI app
+
+**Smart Search**:
+- Voice input "Search for coding prompts" → API search → Select result → Render
+
+**Dynamic Prompt Builder**:
+- Input variables via Shortcuts → Render with variables → Ready for AI
+
+### Security & Local Access
+
+- **Localhost only** - No external network access required
+- **No authentication** - Designed for local use
+- **Clipboard-based** - Secure data exchange
+- **Works offline** - No internet dependency
+
+### Health Check
+
+```bash
+GET /health
+# Returns: {"status": "ok", "service": "pocket-prompt-url-server"}
+```
+
 ## Roadmap
 
 - [x] CLI commands (render, copy, lint)
@@ -438,6 +571,7 @@ pocket-prompt git pull        # Pull remote changes
 - [x] Export formats (JSON, plain text)
 - [x] Advanced Git synchronization
 - [x] Comprehensive UI design system
+- [x] HTTP API server for iOS Shortcuts integration
 - [ ] Linter for prompt validation
 - [ ] Pack management
 - [ ] DNS TXT publishing

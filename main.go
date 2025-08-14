@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/dpshade/pocket-prompt/internal/cli"
+	"github.com/dpshade/pocket-prompt/internal/server"
 	"github.com/dpshade/pocket-prompt/internal/service"
 	"github.com/dpshade/pocket-prompt/internal/ui"
 
@@ -21,9 +22,11 @@ USAGE:
     pocket-prompt [OPTIONS] [COMMAND]
 
 OPTIONS:
-    --help        Show this help information
-    --version     Print version information  
-    --init        Initialize a new prompt library
+    --help          Show this help information
+    --version       Print version information  
+    --init          Initialize a new prompt library
+    --url-server    Start URL server for iOS Shortcuts integration
+    --port          Port for URL server (default: 8080)
 
 COMMANDS:
     (no command)       Start interactive TUI mode
@@ -49,6 +52,8 @@ COMMANDS:
 EXAMPLES:
     pocket-prompt                                    # Start interactive mode
     pocket-prompt --init                             # Initialize new library
+    pocket-prompt --url-server                       # Start URL server for iOS
+    pocket-prompt --url-server --port 9000          # Start server on port 9000
     pocket-prompt list --format table               # List prompts in table format
     pocket-prompt search "machine learning"         # Search prompts
     pocket-prompt create my-prompt --title "Test"   # Create new prompt
@@ -71,10 +76,14 @@ func main() {
 	var showVersion bool
 	var initLib bool
 	var showHelp bool
+	var urlServer bool
+	var port int
 
 	flag.BoolVar(&showVersion, "version", false, "Print version information")
 	flag.BoolVar(&initLib, "init", false, "Initialize a new prompt library")
 	flag.BoolVar(&showHelp, "help", false, "Show help information")
+	flag.BoolVar(&urlServer, "url-server", false, "Start URL server for iOS Shortcuts integration")
+	flag.IntVar(&port, "port", 8080, "Port for URL server")
 	flag.Parse()
 
 	if showHelp {
@@ -100,6 +109,16 @@ func main() {
 			return
 		}
 		fmt.Println("Initialized Pocket Prompt library")
+		return
+	}
+
+	if urlServer {
+		fmt.Printf("Starting URL server for iOS Shortcuts integration...\n")
+		urlSrv := server.NewURLServer(svc, port)
+		if err := urlSrv.Start(); err != nil {
+			fmt.Printf("Error starting URL server: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 

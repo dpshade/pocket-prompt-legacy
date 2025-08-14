@@ -1,0 +1,12 @@
+Starting URL server for iOS Shortcuts integration...
+2025/08/14 01:28:29 URL server starting on http://localhost:8080
+2025/08/14 01:28:29 iOS Shortcuts can now call URLs like:
+2025/08/14 01:28:29   http://localhost:8080/pocket-prompt/render/my-prompt-id
+2025/08/14 01:28:29   http://localhost:8080/pocket-prompt/search?q=AI
+2025/08/14 01:28:29   http://localhost:8080/pocket-prompt/boolean?expr=ai+AND+analysis
+2025/08/14 01:28:51 Clipboard: Copied to clipboard!
+2025/08/14 01:28:55 Clipboard: Copied to clipboard!
+2025/08/14 01:28:59 Clipboard: Copied to clipboard!
+2025/08/14 01:29:02 Clipboard: Copied to clipboard!
+2025/08/14 01:29:10 Clipboard: Copied to clipboard!
+2025/08/14 01:29:14 Clipboard: Copied to clipboard!

@@ -79,12 +79,15 @@
       "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt import:*)",
       "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt --init)",
       "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt import claude-code --preview)",
-      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt import claude-code --commands-only --preview)"
+      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt import claude-code --commands-only --preview)",
+      "Bash(ln:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
+    "defaultMode": "acceptEdits",
     "additionalDirectories": [
       "/Users/dylanshade/Library/Mobile Documents/com~apple~CloudDocs/.claude/agents"
-    ],
-    "defaultMode": "acceptEdits"
+    ]
   }
 }
