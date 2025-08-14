@@ -678,6 +678,15 @@ GET /health
 - [ ] DNS TXT publishing
 - [ ] Signature verification
 
+### Accessibility & Integration
+- [ ] **Raycast Extension** - Native Raycast extension for instant prompt access
+- [ ] **Alfred Workflow** - macOS Alfred workflow for power users
+- [ ] **Browser Extension** - Chrome/Firefox extension for web-based access
+- [ ] **VS Code Extension** - IDE integration for developers
+- [ ] **Menu Bar App** - System tray/menu bar quick access
+- [ ] **Global Hotkeys** - System-wide keyboard shortcuts
+- [ ] **Shell Integration** - Fish/Zsh/Bash completions and commands
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.

@@ -31,7 +31,21 @@
 - **DNS access** - Implement DNS-related functionality
 - **Entire app available via CLI (with no TUI)** - Create headless CLI mode for all application features
 
+### Accessibility & Integration Features
+- **Raycast Extension** - Native Raycast extension for instant prompt access and search
+- **Alfred Workflow** - Comprehensive Alfred workflow for macOS power users
+- **Browser Extension** - Chrome/Firefox extension for web-based prompt access
+- **VS Code Extension** - IDE integration for developers to access prompts directly in editor
+- **System Menu Bar App** - macOS/Linux menu bar application for quick prompt access
+- **Global Hotkeys** - System-wide keyboard shortcuts to trigger prompt search and copy
+- **Clipboard Manager Integration** - Integration with popular clipboard managers (ClipboardR, Paste, etc.)
+- **Shell Integration** - Fish/Zsh/Bash completions and prompt access via shell commands
+- **Desktop Notifications** - Push notifications for git sync status and prompt updates
+- **Quick Actions** - macOS Quick Actions and Windows context menu integration
+
 ### Future Considerations
 - Additional platform support improvements
 - Performance optimizations
 - Extended search capabilities
+- Plugin system for third-party integrations
+- Web dashboard for team prompt management
