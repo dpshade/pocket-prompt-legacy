@@ -1,20 +1,84 @@
 # Pocket Prompt
 
-A unified place to keep LLM context - a single-binary, portable prompt interface with a first-class Terminal User Interface (TUI) for browsing, previewing, rendering, and managing prompts as versioned artifacts you own.
+**Your personal LLM command center.** A unified interface and storage pool for all your AI interactions - prompts, agents, commands, templates, and context - owned and controlled by you.
 
-## Features
+Think of it as your **AI toolkit in a single binary**: a fast, keyboard-driven interface for managing, organizing, and deploying your personal collection of LLM resources across all your devices and workflows.
 
-- **File-Based Storage**: All prompts are stored as plain Markdown files with YAML frontmatter
-- **TUI Interface**: Fast, keyboard-driven interface with polished design system built with Charmbracelet
-- **CLI Mode**: Comprehensive headless mode for automation, scripting, and CI/CD pipelines
-- **Variable Substitution**: Define variables in prompts and fill them at runtime
-- **Template System**: Reusable templates for consistent prompt structures
-- **Fuzzy Search**: Quickly find prompts with fuzzy matching
-- **Boolean Search**: Advanced tag-based search with AND/OR/NOT operators
-- **HTTP API Server**: URL-based access for iOS Shortcuts and automation
-- **Advanced Git Sync**: Automatic conflict resolution and background synchronization for multi-machine workflows
-- **Portable**: Single binary with no external dependencies
-- **Git-Friendly**: Plain text files that work perfectly with version control
+## Why Pocket Prompt?
+
+**Stop losing your best prompts.** Stop rewriting the same instructions. Stop switching between tools to manage your AI workflows.
+
+Pocket Prompt is your **unified command center** for all LLM interactions:
+
+### 🎯 **Unified Storage Pool**
+- **Prompts**: Your tried-and-true AI instructions
+- **Agents**: Reusable AI personas and roles  
+- **Commands**: Automation scripts and workflows
+- **Templates**: Consistent structures across projects
+- **Context**: Project-specific knowledge and constraints
+
+### 🚀 **Multi-Interface Access**
+- **TUI**: Fast, keyboard-driven terminal interface
+- **CLI**: Headless automation for scripts and CI/CD
+- **HTTP API**: iOS Shortcuts, web apps, and integrations
+- **Git Sync**: Multi-device access with version control
+
+### 💾 **Own Your Data**
+- **Plain Text**: Markdown files with YAML frontmatter
+- **Local First**: Everything stored on your machine
+- **Git-Friendly**: Perfect version control integration  
+- **Portable**: Single binary, no dependencies
+- **Future-Proof**: Standard formats that work everywhere
+
+### 🔍 **Intelligent Organization**
+- **Fuzzy Search**: Find anything instantly
+- **Boolean Search**: Complex tag-based filtering (`(ai AND analysis) OR writing`)
+- **Variable System**: Parameterized, reusable prompts
+- **Template Engine**: Consistent prompt structures
+- **Auto-sync**: Background Git synchronization
+
+## Perfect For
+
+### 👩‍💻 **Developers & Engineers**
+```bash
+# Store your go-to prompts
+pocket-prompt render code-reviewer --var language=Go --var focus=performance
+pocket-prompt render architecture-analysis --var system=microservices
+
+# CLI automation in scripts
+./deploy.sh && pocket-prompt render deployment-summary --var env=prod | send-to-slack
+```
+
+### 📝 **Content Creators & Writers**  
+```bash
+# Reusable writing agents
+pocket-prompt render creative-writer --var style=technical --var audience=developers
+pocket-prompt render editor-agent --var focus="clarity and conciseness"
+
+# Template-driven content
+pocket-prompt render blog-outline --var topic="AI safety" --var length=2000
+```
+
+### 🎯 **AI Researchers & Prompt Engineers**
+```bash
+# Versioned prompt development
+git log prompts/chain-of-thought-v3.md
+pocket-prompt boolean-search "(reasoning AND complex) NOT deprecated"
+
+# A/B test different prompt versions
+pocket-prompt render analysis-v1 --var data=Q3-metrics > results-v1.txt
+pocket-prompt render analysis-v2 --var data=Q3-metrics > results-v2.txt
+```
+
+### 📱 **iOS Power Users**
+- **Shortcuts Integration**: Voice → Search → Render → ChatGPT
+- **URL-based Access**: `http://localhost:8080/pocket-prompt/render/my-prompt?var1=value`  
+- **Offline-First**: No API keys or internet required
+
+### 🏢 **Teams & Organizations**
+- **Shared Git Repos**: Team prompt libraries with version control
+- **Consistent Standards**: Shared templates ensure uniform output
+- **Audit Trail**: Full history of prompt evolution and usage
 
 ## Installation
 

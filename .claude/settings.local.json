@@ -118,7 +118,9 @@
       "Bash(cd:*)",
       "Bash(cd:*)",
       "Bash(cd:*)",
-      "Bash(POCKET_PROMPT_DIR=./test-library gtimeout 10s ./pocket-prompt)"
+      "Bash(POCKET_PROMPT_DIR=./test-library gtimeout 10s ./pocket-prompt)",
+      "Bash(gh repo rename:*)",
+      "Bash(gh repo list:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits",
