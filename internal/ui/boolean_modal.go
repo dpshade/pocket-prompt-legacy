@@ -55,7 +55,7 @@ func NewBooleanSearchModal(availableTags []string) *BooleanSearchModal {
 		textInput:     ti,
 		availableTags: availableTags,
 		isActive:      false,
-		showHelp:      true,
+		showHelp:      false, // Default to no help for consistency
 	}
 }
 
@@ -103,7 +103,7 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+h"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+g"))):
 			m.showHelp = !m.showHelp
 			return nil
 
@@ -356,12 +356,24 @@ func (m *BooleanSearchModal) View() string {
 		content = append(content, savePromptStyle.Render("💾 Enter name to save this search (or Esc to cancel):"))
 	}
 
-	// Help
+	// Help - always show essential commands, Ctrl+g expands for more
+	content = append(content, "")
+	essential := "Tab: cycle focus • Enter: search • Esc: close"
 	if m.showHelp {
-		helpText := "Examples: 'tag1 AND tag2', 'tag3 OR tag4', 'NOT tag5'\n" +
-			"Text filter searches within boolean results using fuzzy matching\n" +
-			"Tab: cycle focus (boolean → text → results) • ↑/↓: navigate results • Ctrl+S: save search • Ctrl+H: toggle help • Esc: close"
-		content = append(content, helpStyle.Render(helpText))
+		// Show expanded help with examples and additional commands
+		content = append(content, headerStyle.Render("Examples:"))
+		content = append(content, "  tag1 AND tag2")
+		content = append(content, "  tag3 OR tag4") 
+		content = append(content, "  NOT tag5")
+		content = append(content, "")
+		content = append(content, helpStyle.Render("Text filter searches within boolean results using fuzzy matching"))
+		content = append(content, "")
+		content = append(content, helpStyle.Render(essential))
+		content = append(content, helpStyle.Render("↑/↓: navigate results • Ctrl+s: save search • Ctrl+g: less help"))
+	} else {
+		// Show only essential commands with expand hint
+		content = append(content, helpStyle.Render(essential))
+		content = append(content, helpStyle.Render("Ctrl+g: more help"))
 	}
 
 	// Join content and apply modal styling

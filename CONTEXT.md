@@ -96,6 +96,7 @@ POCKET_PROMPT_DIR=./test-library go test ./...
 - **Git Sync**: Optional synchronization with remote Git repositories for backup
 - **Variable Substitution**: Templates support typed variables with defaults
 - **Export Formats**: Copy as plain text or JSON message format for LLM APIs
+- **Contrast-Aware Rendering**: Automatic terminal background detection ensures optimal text contrast when previewing prompts
 
 ### Search and Discovery
 - **Fuzzy Search**: Fast text-based search across prompt content, titles, and tags
@@ -154,5 +155,6 @@ Tests use a separate test library directory to avoid interfering with user data.
 ## Configuration
 
 - `POCKET_PROMPT_DIR`: Override default storage directory (~/.pocket-prompt)
+- `GLAMOUR_STYLE`: Override automatic theme selection for prompt preview (e.g., "dark", "light", "dracula")
 - Git repository integration via standard Git commands and configuration
 - No additional configuration files required - works out of the box

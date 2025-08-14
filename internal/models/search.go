@@ -92,6 +92,56 @@ func (be *BooleanExpression) Evaluate(tags []string) bool {
 	}
 }
 
+// QueryString returns the expression as an editable query string (without brackets for tags)
+func (be *BooleanExpression) QueryString() string {
+	if be == nil {
+		return ""
+	}
+
+	switch be.Type {
+	case ExpressionTag:
+		if tagName, ok := be.Value.(string); ok {
+			return tagName // No brackets for query format
+		}
+		return "unknown"
+
+	case ExpressionAnd:
+		if expressions, ok := be.Value.([]*BooleanExpression); ok {
+			var parts []string
+			for _, expr := range expressions {
+				parts = append(parts, expr.QueryString())
+			}
+			return strings.Join(parts, " AND ")
+		}
+		return "AND ?"
+
+	case ExpressionOr:
+		if expressions, ok := be.Value.([]*BooleanExpression); ok {
+			var parts []string
+			for _, expr := range expressions {
+				parts = append(parts, expr.QueryString())
+			}
+			return strings.Join(parts, " OR ")
+		}
+		return "OR ?"
+
+	case ExpressionXor:
+		if expressions, ok := be.Value.([]*BooleanExpression); ok && len(expressions) == 2 {
+			return fmt.Sprintf("%s XOR %s", expressions[0].QueryString(), expressions[1].QueryString())
+		}
+		return "XOR ?"
+
+	case ExpressionNot:
+		if expressions, ok := be.Value.([]*BooleanExpression); ok && len(expressions) == 1 {
+			return fmt.Sprintf("NOT %s", expressions[0].QueryString())
+		}
+		return "NOT ?"
+
+	default:
+		return "?"
+	}
+}
+
 // String returns a human-readable string representation of the expression
 func (be *BooleanExpression) String() string {
 	if be == nil {

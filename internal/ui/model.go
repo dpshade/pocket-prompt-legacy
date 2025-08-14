@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -11,11 +12,60 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/dpshade/pocket-prompt/internal/clipboard"
 	"github.com/dpshade/pocket-prompt/internal/models"
 	"github.com/dpshade/pocket-prompt/internal/renderer"
 	"github.com/dpshade/pocket-prompt/internal/service"
 )
+
+// createGlamourRenderer creates a glamour renderer with improved contrast handling
+func createGlamourRenderer(wordWrap int) (*glamour.TermRenderer, error) {
+	// Check for environment variable override first
+	if style := os.Getenv("GLAMOUR_STYLE"); style != "" {
+		return glamour.NewTermRenderer(
+			glamour.WithStandardStyle(style),
+			glamour.WithWordWrap(wordWrap),
+		)
+	}
+
+	// Detect terminal capabilities and background
+	profile := termenv.ColorProfile()
+	hasDarkBg := lipgloss.HasDarkBackground()
+	
+	// Choose appropriate style based on background detection and capabilities
+	var styleOption glamour.TermRendererOption
+	
+	if hasDarkBg {
+		// Dark background detected - use high contrast light text styles
+		switch profile {
+		case termenv.TrueColor:
+			// Use "dark" style for best contrast on dark terminals
+			styleOption = glamour.WithStandardStyle("dark")
+		case termenv.ANSI256:
+			styleOption = glamour.WithStandardStyle("dark")
+		default:
+			// Fallback to auto-style for limited color terminals
+			styleOption = glamour.WithAutoStyle()
+		}
+	} else {
+		// Light background detected - use dark text styles
+		switch profile {
+		case termenv.TrueColor:
+			styleOption = glamour.WithStandardStyle("light")
+		case termenv.ANSI256:
+			styleOption = glamour.WithStandardStyle("light")
+		default:
+			styleOption = glamour.WithAutoStyle()
+		}
+	}
+
+	return glamour.NewTermRenderer(
+		styleOption,
+		glamour.WithColorProfile(profile),
+		glamour.WithWordWrap(wordWrap),
+	)
+}
 
 // Commands for async operations
 type loadCompleteMsg struct {
@@ -134,6 +184,7 @@ type Model struct {
 	// Modal state
 	showGHSyncInfo bool
 	showHelpModal  bool
+	showExpandedHelp bool // Whether to show expanded help in current view
 	helpViewport   viewport.Model // Viewport for scrollable help modal
 	modalContent   string // Plain text content for copying
 	
@@ -157,6 +208,7 @@ type KeyMap struct {
 	Back   key.Binding
 	Quit   key.Binding
 	Help   key.Binding
+	ExpandHelp key.Binding
 	Search key.Binding
 	Copy     key.Binding
 	CopyJSON key.Binding
@@ -196,8 +248,8 @@ var keys = KeyMap{
 		key.WithHelp("↓/j", "move down"),
 	),
 	Left: key.NewBinding(
-		key.WithKeys("ctrl+b"),
-		key.WithHelp("Ctrl+B", "back"),
+		key.WithKeys("left"),
+		key.WithHelp("←", "back"),
 	),
 	Right: key.NewBinding(
 		key.WithKeys("right", "l"),
@@ -205,11 +257,11 @@ var keys = KeyMap{
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
-		key.WithHelp("enter", "select"),
+		key.WithHelp("Enter", "select"),
 	),
 	Back: key.NewBinding(
-		key.WithKeys("esc", "b"),
-		key.WithHelp("esc/b", "back"),
+		key.WithKeys("esc", "backspace"),
+		key.WithHelp("Esc/←/⌫", "back"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
@@ -218,6 +270,10 @@ var keys = KeyMap{
 	Help: key.NewBinding(
 		key.WithKeys("?"),
 		key.WithHelp("?", "help"),
+	),
+	ExpandHelp: key.NewBinding(
+		key.WithKeys("ctrl+g"),
+		key.WithHelp("Ctrl+g", "expand help"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
@@ -253,11 +309,11 @@ var keys = KeyMap{
 	),
 	GHSyncInfo: key.NewBinding(
 		key.WithKeys("?"),
-		key.WithHelp("shift+?", "GitHub sync info"),
+		key.WithHelp("Shift+?", "GitHub sync info"),
 	),
 	BooleanSearch: key.NewBinding(
-		key.WithKeys("ctrl+b"),
-		key.WithHelp("ctrl+b", "boolean search"),
+		key.WithKeys("ctrl+f"),
+		key.WithHelp("Ctrl+f", "boolean search"),
 	),
 	SavedSearches: key.NewBinding(
 		key.WithKeys("f"),
@@ -267,6 +323,9 @@ var keys = KeyMap{
 
 // NewModel creates a new TUI model
 func NewModel(svc *service.Service) (*Model, error) {
+	// Initialize adaptive colors based on terminal background
+	initializeColors()
+	
 	// Start with empty data for immediate UI responsiveness
 	// Data will be loaded asynchronously
 	prompts := []*models.Prompt{}
@@ -302,11 +361,8 @@ func NewModel(svc *service.Service) (*Model, error) {
 	helpVp := viewport.New(56, 23) // Smaller size for help modal
 	helpVp.Style = lipgloss.NewStyle()
 
-	// Create glamour renderer for markdown
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(80),
-	)
+	// Create glamour renderer for markdown with improved contrast
+	renderer, err := createGlamourRenderer(80)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create glamour renderer: %w", err)
 	}
@@ -425,10 +481,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update glamour renderer width for detail view
 		glamourWidth := m.width - 8 // Account for padding
 		if glamourWidth > 0 {
-			renderer, err := glamour.NewTermRenderer(
-				glamour.WithAutoStyle(),
-				glamour.WithWordWrap(glamourWidth),
-			)
+			renderer, err := createGlamourRenderer(glamourWidth)
 			if err == nil {
 				m.glamourRenderer = renderer
 			}
@@ -498,6 +551,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.booleanSearchModal.IsSaveRequested() {
 				if m.saveSearchModal == nil {
 					m.saveSearchModal = NewSaveSearchModal()
+					m.saveSearchModal.SetSearchFunc(m.service.SearchPromptsByBooleanExpression)
 				}
 				m.saveSearchModal.SetExpression(m.booleanSearchModal.GetExpression())
 				m.saveSearchModal.SetTextQuery(m.booleanSearchModal.GetTextQuery())
@@ -716,48 +770,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		default:
-			// Handle Ctrl+S for saving forms, Ctrl+D for deleting, and Ctrl+B for back navigation
-			if msg.String() == "ctrl+b" {
-				// Handle Ctrl+B for back navigation
-				switch m.viewMode {
-				case ViewPromptDetail:
-					m.viewMode = ViewLibrary
-					m.selectedPrompt = nil
-					m.renderedContent = ""
-					m.renderedContentJSON = ""
-					return m, nil
-				case ViewCreateMenu, ViewCreateFromScratch, ViewCreateFromTemplate, ViewTemplateList:
-					if m.viewMode == ViewTemplateList || m.viewMode == ViewCreateFromTemplate {
-						m.viewMode = ViewCreateMenu
-					} else {
-						m.viewMode = ViewLibrary
-					}
-					m.newPrompt = nil
-					m.createForm = nil
-					m.selectForm = nil
-					return m, nil
-				case ViewEditPrompt, ViewEditTemplate:
-					m.viewMode = ViewLibrary
-					m.createForm = nil
-					m.templateForm = nil
-					m.editMode = false
-					return m, nil
-				case ViewTemplateManagement, ViewTemplateDetail:
-					if m.viewMode == ViewTemplateDetail {
-						m.viewMode = ViewTemplateManagement
-					} else {
-						m.viewMode = ViewLibrary
-					}
-					m.selectedTemplate = nil
-					m.selectForm = nil
-					return m, nil
-				case ViewSavedSearches:
-					m.viewMode = ViewLibrary
-					m.selectForm = nil
-					m.savedSearches = nil
-					return m, nil
-				}
-			} else if msg.String() == "ctrl+s" {
+			// Handle Ctrl+S for saving forms and Ctrl+D for deleting
+			if msg.String() == "ctrl+s" {
 				switch m.viewMode {
 				case ViewEditPrompt:
 					if m.createForm != nil {
@@ -920,20 +934,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			
 
-		case key.Matches(msg, m.keys.Back):
-			// Check if this is specifically the 'b' key and we're in a form editing mode
-			if msg.String() == "b" && (m.viewMode == ViewCreateFromScratch || m.viewMode == ViewEditPrompt || m.viewMode == ViewEditTemplate) {
-				// Don't handle 'b' key as back navigation in form editing modes
-				// Let it be handled as text input instead
-				break
-			}
-			
+		case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Left):
 			switch m.viewMode {
-			case ViewPromptDetail:
-				m.viewMode = ViewLibrary
-				m.selectedPrompt = nil
-				m.renderedContent = ""
-				m.renderedContentJSON = ""
 			case ViewCreateMenu, ViewCreateFromScratch, ViewCreateFromTemplate, ViewTemplateList:
 				if m.viewMode == ViewTemplateList || m.viewMode == ViewCreateFromTemplate {
 					m.viewMode = ViewCreateMenu
@@ -1021,21 +1023,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					selected := m.selectForm.GetSelected()
 					if selected != nil {
 						if savedSearch, ok := selected.Value.(models.SavedSearch); ok {
-							// Initialize boolean search modal for editing
-							if m.booleanSearchModal == nil {
-								tags, err := m.service.GetAllTags()
-								if err != nil {
-									m.statusMsg = fmt.Sprintf("Failed to load tags: %v", err)
-									m.statusTimeout = 3
-									return m, clearStatusCmd()
-								}
-								m.booleanSearchModal = NewBooleanSearchModal(tags)
-								m.booleanSearchModal.SetSearchFunc(m.service.SearchPromptsByBooleanExpression)
-								m.booleanSearchModal.SetSaveFunc(m.service.SaveBooleanSearch)
+							// Initialize save search modal for editing
+							if m.saveSearchModal == nil {
+								m.saveSearchModal = NewSaveSearchModal()
+								m.saveSearchModal.SetSearchFunc(m.service.SearchPromptsByBooleanExpression)
 							}
-							m.booleanSearchModal.Resize(m.width, m.height)
-							m.booleanSearchModal.SetEditMode(&savedSearch)
-							m.booleanSearchModal.SetActive(true)
+							m.saveSearchModal.Resize(m.width, m.height)
+							m.saveSearchModal.SetEditMode(&savedSearch, savedSearch.Expression)
+							m.saveSearchModal.SetActive(true)
 							return m, nil
 						}
 					}
@@ -1069,6 +1064,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help):
 			// Toggle help modal
 			m.showHelpModal = !m.showHelpModal
+			return m, nil
+
+		case key.Matches(msg, m.keys.ExpandHelp):
+			// Toggle expanded help in current view
+			m.showExpandedHelp = !m.showExpandedHelp
 			return m, nil
 
 		case key.Matches(msg, m.keys.GHSyncInfo):
@@ -1176,9 +1176,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 	case ViewPromptDetail:
-		newViewport, cmd := m.viewport.Update(msg)
-		m.viewport = newViewport
-		cmds = append(cmds, cmd)
+		// Handle back navigation keys before passing to viewport
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if key.Matches(keyMsg, m.keys.Back) || key.Matches(keyMsg, m.keys.Left) {
+				m.viewMode = ViewLibrary
+				m.selectedPrompt = nil
+				m.renderedContent = ""
+				m.renderedContentJSON = ""
+				// Don't pass to viewport, navigation handled
+			} else {
+				// Only pass other keys to viewport
+				newViewport, cmd := m.viewport.Update(msg)
+				m.viewport = newViewport
+				cmds = append(cmds, cmd)
+			}
+		} else {
+			// Non-key messages still go to viewport
+			newViewport, cmd := m.viewport.Update(msg)
+			m.viewport = newViewport
+			cmds = append(cmds, cmd)
+		}
 
 	case ViewCreateMenu:
 		if m.selectForm != nil {
@@ -1424,15 +1441,15 @@ func (m Model) View() string {
 	// Add status message at the bottom if present
 	if m.statusMsg != "" {
 		statusBar := CreateStatus(m.statusMsg, "success") // Default to success styling
-		return lipgloss.JoinVertical(lipgloss.Left, mainView, statusBar)
+		return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, mainView, statusBar))
 	}
 
-	return mainView
+	return AddMainPadding(mainView)
 }
 
 // renderLibraryView renders the prompt library list
 func (m Model) renderLibraryView() string {
-	title := StyleTitle.Render("Pocket Prompt Library")
+	title := CreateMainHeader("Pocket Prompt Library")
 	
 	// Add boolean search indicator if active
 	var searchIndicator string
@@ -1445,9 +1462,13 @@ func (m Model) renderLibraryView() string {
 		help = CreateGuaranteedHelp("Loading prompts... • q quit", m.width)
 	} else {
 		if m.currentExpression != nil {
-			help = CreateGuaranteedHelp("Enter view • Ctrl+B modify search • q quit", m.width)
+			essential := []string{"enter view • e edit • n create"}
+			additional := []string{"Ctrl+f modify search • q quit"}
+			help = CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 		} else {
-			help = CreateGuaranteedHelp("Enter view • e edit • n create • / search • ? help • q quit", m.width)
+			essential := []string{"enter view • e edit • n create"}
+			additional := []string{"/ search • t templates • f saved searches", "Ctrl+f boolean search • ? help • q quit"}
+			help = CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 		}
 	}
 	
@@ -1485,7 +1506,7 @@ func (m Model) renderPromptDetailView() string {
 	}
 
 	// Create header with consistent styling
-	headerLine := CreateHeader("Back", m.selectedPrompt.Title())
+	headerLine := CreateSubPageHeader(m.selectedPrompt.Title())
 
 	// Create metadata line
 	metadata := fmt.Sprintf("ID: %s • Version: %s", m.selectedPrompt.ID, m.selectedPrompt.Version)
@@ -1505,12 +1526,14 @@ func (m Model) renderPromptDetailView() string {
 	metadataLine := CreateMetadata(metadata)
 
 	// Help text
-	help := CreateGuaranteedHelp("c copy • y copy JSON • e edit • b back", m.width)
+	essential := []string{"c copy • e edit"}
+	additional := []string{"y copy JSON • x export • Esc back"}
+	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
 	// Content viewport
 	content := m.viewport.View()
 
-	return lipgloss.JoinVertical(
+	return AddMainPadding(lipgloss.JoinVertical(
 		lipgloss.Left,
 		headerLine,
 		metadataLine,
@@ -1518,17 +1541,17 @@ func (m Model) renderPromptDetailView() string {
 		content,
 		"",
 		help,
-	)
+	))
 }
 
 
 // renderCreateMenuView renders the create menu using SelectForm
 func (m Model) renderCreateMenuView() string {
 	// Create header with consistent styling
-	headerLine := CreateHeader("Back", "Create New Prompt")
+	headerLine := CreateSubPageHeader("Create New Prompt")
 
 	if m.selectForm == nil {
-		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No options available")
+		return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No options available"))
 	}
 
 	// Render options with consistent styling
@@ -1539,20 +1562,22 @@ func (m Model) renderCreateMenuView() string {
 		optionLines = append(optionLines, lines...)
 	}
 
-	help := CreateGuaranteedHelp("↑/↓ navigate • Enter select • Esc back", m.width)
+	essential := []string{"↑/↓ navigate • enter select"}
+	additional := []string{"Esc back"}
+	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, optionLines...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }
 
 // renderCreateFromScratchView renders the create from scratch form
 func (m Model) renderCreateFromScratchView() string {
 	// Create header with consistent styling
-	headerLine := CreateHeader("Back", "Create from Scratch")
+	headerLine := CreateSubPageHeader( "Create from Scratch")
 
 	if m.createForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
@@ -1587,22 +1612,22 @@ func (m Model) renderCreateFromScratchView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := CreateGuaranteedHelp("Tab next field • Ctrl+S save • Esc cancel", m.width)
+	help := CreateGuaranteedHelp("Tab next field • Ctrl+s save • Esc cancel", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, formFields...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddFormPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }
 
 // renderCreateFromTemplateView renders template-based creation
 func (m Model) renderCreateFromTemplateView() string {
 	// Create header with consistent styling
-	headerLine := CreateHeader("Back", "Create from Template")
+	headerLine := CreateSubPageHeader( "Create from Template")
 
-	content := "Template creation form will go here...\n\nPress Esc/Ctrl+B to go back"
+	content := "Template creation form will go here...\n\nPress Esc to go back"
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -1614,81 +1639,37 @@ func (m Model) renderCreateFromTemplateView() string {
 
 // renderTemplateListView renders the template selection list using SelectForm
 func (m Model) renderTemplateListView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("33")).
-		Bold(true).
-		Padding(0, 1)
-
-	unselectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244")).
-		Padding(0, 1)
-
-	descriptionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Italic(true).
-		Padding(0, 3)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Select Template")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateSubPageHeader( "Select Template")
 
 	if m.selectForm == nil || len(m.selectForm.options) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No templates available")
 	}
 
-	// Render template options
+	// Render template options with consistent styling
 	var optionLines []string
 	for i, option := range m.selectForm.options {
-		var style lipgloss.Style
-		if i == m.selectForm.selected {
-			style = selectedStyle
-		} else {
-			style = unselectedStyle
-		}
-		
-		optionLine := style.Render("▶ " + option.Label)
-		optionLines = append(optionLines, optionLine)
-		
-		if option.Description != "" {
-			descLine := descriptionStyle.Render(option.Description)
-			optionLines = append(optionLines, descLine)
-		}
-		
-		optionLines = append(optionLines, "") // Add spacing
+		isSelected := i == m.selectForm.selected
+		lines := CreateOption(option.Label, option.Description, isSelected)
+		optionLines = append(optionLines, lines...)
 	}
 
-	help := helpStyle.Render("↑/↓ navigate • Enter select • Esc back")
+	essential := []string{"↑/↓ navigate • enter select"}
+	additional := []string{"Esc back"}
+	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, optionLines...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }
 
 // renderEditPromptView renders the prompt editing form
 func (m Model) renderEditPromptView() string {
 	// Create header with consistent styling
-	headerLine := CreateHeader("Back", "Edit Prompt")
+	headerLine := CreateSubPageHeader( "Edit Prompt")
 
 	if m.createForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
@@ -1723,20 +1704,20 @@ func (m Model) renderEditPromptView() string {
 	formFields = append(formFields, contentLabel, m.createForm.textarea.View(), "")
 
 	// Help text
-	help := CreateGuaranteedHelp("Tab next field • Ctrl+S save • Ctrl+D delete • Esc cancel", m.width)
+	help := CreateGuaranteedHelp("Tab next field • Ctrl+s save • Ctrl+d delete • Esc cancel", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, formFields...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddFormPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }
 
 // renderEditTemplateView renders the template editing form
 func (m Model) renderEditTemplateView() string {
 	// Create header with consistent styling
-	headerLine := CreateHeader("Back", "Edit Template")
+	headerLine := CreateSubPageHeader( "Edit Template")
 
 	if m.templateForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No form available")
@@ -1766,14 +1747,14 @@ func (m Model) renderEditTemplateView() string {
 	formFields = append(formFields, contentLabel, m.templateForm.textarea.View(), "")
 
 	// Help text
-	help := CreateGuaranteedHelp("Tab next field • arrows navigate • Ctrl+S save • Esc cancel", m.width)
+	help := CreateGuaranteedHelp("Tab next field • arrows navigate • Ctrl+s save • Esc cancel", m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, formFields...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddFormPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }
 
 // renderTemplateDetailView renders template details
@@ -1782,42 +1763,22 @@ func (m Model) renderTemplateDetailView() string {
 		return "No template selected"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	metadataStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render(m.selectedTemplate.Name)
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateSubPageHeader(m.selectedTemplate.Name)
 
 	// Create metadata line
 	metadata := fmt.Sprintf("ID: %s • Version: %s", m.selectedTemplate.ID, m.selectedTemplate.Version)
-	metadataLine := metadataStyle.Render(metadata)
+	metadataLine := CreateMetadata(metadata)
 
 	// Help text
-	help := helpStyle.Render("e edit • Esc back")
+	essential := []string{"e edit"}
+	additional := []string{"Esc back"}
+	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
 	// Content (template preview)
 	content := m.selectedTemplate.Content
 
-	return lipgloss.JoinVertical(
+	return AddMainPadding(lipgloss.JoinVertical(
 		lipgloss.Left,
 		headerLine,
 		metadataLine,
@@ -1825,80 +1786,36 @@ func (m Model) renderTemplateDetailView() string {
 		content,
 		"",
 		help,
-	)
+	))
 }
 
 // renderTemplateManagementView renders template management menu using SelectForm
 func (m Model) renderTemplateManagementView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("33")).
-		Bold(true).
-		Padding(0, 1)
-
-	unselectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244")).
-		Padding(0, 1)
-
-	descriptionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Italic(true).
-		Padding(0, 3)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Template Management")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateSubPageHeader( "Template Management")
 
 	if m.selectForm == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No options available")
 	}
 
-	// Render options
+	// Render options with consistent styling
 	var optionLines []string
 	for i, option := range m.selectForm.options {
-		var style lipgloss.Style
-		if i == m.selectForm.selected {
-			style = selectedStyle
-		} else {
-			style = unselectedStyle
-		}
-		
-		optionLine := style.Render("▶ " + option.Label)
-		optionLines = append(optionLines, optionLine)
-		
-		if option.Description != "" {
-			descLine := descriptionStyle.Render(option.Description)
-			optionLines = append(optionLines, descLine)
-		}
-		
-		optionLines = append(optionLines, "") // Add spacing
+		isSelected := i == m.selectForm.selected
+		lines := CreateOption(option.Label, option.Description, isSelected)
+		optionLines = append(optionLines, lines...)
 	}
 
-	help := helpStyle.Render("↑/↓ navigate • Enter select • Esc back")
+	essential := []string{"↑/↓ navigate • enter select"}
+	additional := []string{"Esc back"}
+	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, optionLines...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }
 
 // renderGHSyncInfoModal renders the GitHub sync information modal
@@ -2134,8 +2051,8 @@ func (m *Model) renderHelpModal() string {
 		{"e", "Edit selected prompt"},
 		{"c", "Copy prompt as plain text"},
 		{"y", "Copy prompt as JSON messages for LLM APIs"},
-		{"Ctrl+S", "Save prompt when editing"},
-		{"Ctrl+D", "Delete prompt (press twice to confirm)"},
+		{"Ctrl+s", "Save prompt when editing"},
+		{"Ctrl+d", "Delete prompt (press twice to confirm)"},
 	}
 	
 	for _, kv := range promptKeys {
@@ -2152,10 +2069,10 @@ func (m *Model) renderHelpModal() string {
 	
 	searchKeys := [][]string{
 		{"/", "Start fuzzy search (type to filter prompts)"},
-		{"Ctrl+B", "Advanced boolean search with tags"},
-		{"Ctrl+L", "View and execute saved searches"},
+		{"Ctrl+f", "Advanced boolean search with tags"},
+		{"f", "View and execute saved searches"},
 		{"Tab", "Switch focus in boolean search"},
-		{"Ctrl+S", "Save current boolean search"},
+		{"Ctrl+s", "Save current boolean search"},
 	}
 	
 	for _, kv := range searchKeys {
@@ -2339,73 +2256,29 @@ func (m *Model) renderPreview() error {
 
 // renderSavedSearchesView renders the saved searches interface
 func (m Model) renderSavedSearchesView() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		Padding(0, 1)
-
-	backButtonStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("236")).
-		Padding(0, 1).
-		MarginRight(2)
-
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("33")).
-		Bold(true).
-		Padding(0, 1)
-
-	unselectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244")).
-		Padding(0, 1)
-
-	descriptionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Italic(true).
-		Padding(0, 3)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Padding(0, 1)
-
-	// Create back button and title
-	backButton := backButtonStyle.Render("← Back")
-	title := titleStyle.Render("Saved Boolean Searches")
-	
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
+	// Create header with consistent styling
+	headerLine := CreateSubPageHeader( "Saved Boolean Searches")
 
 	if m.selectForm == nil || len(m.selectForm.options) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, "", "No saved searches available")
 	}
 
-	// Render saved search options
+	// Render saved search options with consistent styling
 	var optionLines []string
 	for i, option := range m.selectForm.options {
-		var style lipgloss.Style
-		if i == m.selectForm.selected {
-			style = selectedStyle
-		} else {
-			style = unselectedStyle
-		}
-		
-		optionLine := style.Render("▶ " + option.Label)
-		optionLines = append(optionLines, optionLine)
-		
-		if option.Description != "" {
-			descLine := descriptionStyle.Render(option.Description)
-			optionLines = append(optionLines, descLine)
-		}
-		
-		optionLines = append(optionLines, "") // Add spacing
+		isSelected := i == m.selectForm.selected
+		lines := CreateOption(option.Label, option.Description, isSelected)
+		optionLines = append(optionLines, lines...)
 	}
 
-	help := helpStyle.Render("↑/↓ navigate • Enter execute • e edit • Ctrl+D delete • Esc back")
+	essential := []string{"↑/↓ navigate • enter execute • e edit"}
+	additional := []string{"Ctrl+d delete • Esc back"}
+	help := CreateContextualHelp(essential, additional, m.showExpandedHelp, m.width)
 
 	// Join all elements
 	allElements := []string{headerLine, ""}
 	allElements = append(allElements, optionLines...)
 	allElements = append(allElements, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, allElements...)
+	return AddMainPadding(lipgloss.JoinVertical(lipgloss.Left, allElements...))
 }

@@ -2,15 +2,61 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Design System Colors
+// Design System Colors - Adaptive based on terminal background
 var (
-	// Primary brand colors
+	// Primary brand colors (work well on both light and dark)
+	ColorPrimary    lipgloss.Color
+	ColorSecondary  lipgloss.Color  
+	ColorAccent     lipgloss.Color
+	
+	// Semantic colors
+	ColorSuccess    lipgloss.Color
+	ColorWarning    lipgloss.Color
+	ColorError      lipgloss.Color
+	ColorInfo       lipgloss.Color
+	
+	// Neutral colors (contrast-adaptive)
+	ColorText       lipgloss.Color
+	ColorTextMuted  lipgloss.Color
+	ColorTextDim    lipgloss.Color
+	ColorBorder     lipgloss.Color
+	ColorBackground lipgloss.Color
+	ColorSurface    lipgloss.Color
+	ColorOverlay    lipgloss.Color
+)
+
+// initializeColors sets up adaptive colors based on terminal background
+func initializeColors() {
+	// Check for environment variable override
+	if os.Getenv("GLAMOUR_STYLE") == "light" {
+		// Force light theme
+		setLightThemeColors()
+		return
+	}
+	if os.Getenv("GLAMOUR_STYLE") == "dark" {
+		// Force dark theme  
+		setDarkThemeColors()
+		return
+	}
+	
+	// Auto-detect based on terminal background
+	if lipgloss.HasDarkBackground() {
+		setDarkThemeColors()
+	} else {
+		setLightThemeColors()
+	}
+}
+
+func setDarkThemeColors() {
+	// Brand colors - work well on dark backgrounds
 	ColorPrimary    = lipgloss.Color("205") // Bright magenta/pink
-	ColorSecondary  = lipgloss.Color("33")  // Bright cyan/blue
+	ColorSecondary  = lipgloss.Color("33")  // Bright cyan/blue  
 	ColorAccent     = lipgloss.Color("214") // Bright orange/yellow
 	
 	// Semantic colors
@@ -19,7 +65,7 @@ var (
 	ColorError      = lipgloss.Color("9")   // Bright red
 	ColorInfo       = lipgloss.Color("12")  // Bright blue
 	
-	// Neutral colors (refined for better contrast)
+	// Neutral colors - high contrast for dark backgrounds
 	ColorText       = lipgloss.Color("252") // Near white
 	ColorTextMuted  = lipgloss.Color("244") // Light gray
 	ColorTextDim    = lipgloss.Color("240") // Medium gray
@@ -27,7 +73,29 @@ var (
 	ColorBackground = lipgloss.Color("235") // Very dark gray
 	ColorSurface    = lipgloss.Color("236") // Slightly lighter dark gray
 	ColorOverlay    = lipgloss.Color("234") // Darkest gray
-)
+}
+
+func setLightThemeColors() {
+	// Brand colors - adjusted for light backgrounds
+	ColorPrimary    = lipgloss.Color("125") // Darker magenta for contrast
+	ColorSecondary  = lipgloss.Color("24")  // Darker cyan
+	ColorAccent     = lipgloss.Color("130") // Darker orange
+	
+	// Semantic colors - darker versions for light backgrounds
+	ColorSuccess    = lipgloss.Color("22")  // Dark green
+	ColorWarning    = lipgloss.Color("136") // Dark yellow/orange
+	ColorError      = lipgloss.Color("160") // Dark red
+	ColorInfo       = lipgloss.Color("24")  // Dark blue
+	
+	// Neutral colors - high contrast for light backgrounds  
+	ColorText       = lipgloss.Color("232") // Near black
+	ColorTextMuted  = lipgloss.Color("240") // Dark gray
+	ColorTextDim    = lipgloss.Color("244") // Medium gray
+	ColorBorder     = lipgloss.Color("248") // Light gray
+	ColorBackground = lipgloss.Color("255") // White
+	ColorSurface    = lipgloss.Color("254") // Off-white
+	ColorOverlay    = lipgloss.Color("253") // Light gray
+}
 
 // Typography Scale
 type FontSize struct {
@@ -194,6 +262,18 @@ func CreateHeader(backText, titleText string) string {
 	return lipgloss.JoinHorizontal(lipgloss.Left, backButton, title)
 }
 
+// Create header for main page (no back button)
+func CreateMainHeader(titleText string) string {
+	title := StyleTitle.Render(titleText)
+	return title
+}
+
+// Create header for subpages (title only, back handled via keybind)
+func CreateSubPageHeader(titleText string) string {
+	title := StyleTitle.Render(titleText)
+	return title
+}
+
 func CreateMetadata(text string) string {
 	return StyleMetadata.Render(text)
 }
@@ -202,21 +282,35 @@ func CreateHelp(text string) string {
 	return StyleTextDim.Render(text)
 }
 
-// Context-aware help creation
-func CreateContextualHelp(essential []string, additional []string) string {
-	// Show essential keybinds
-	essentialText := lipgloss.JoinHorizontal(lipgloss.Left, essential...)
+// Context-aware help creation with proper row display and smart truncation
+func CreateContextualHelp(essential []string, additional []string, showExpanded bool, width int) string {
+	var lines []string
 	
-	// If there are additional keybinds, show expansion hint
-	if len(additional) > 0 {
-		hint := lipgloss.NewStyle().
-			Foreground(ColorTextDim).
-			Italic(true).
-			Render(" • ? for more")
-		essentialText = lipgloss.JoinHorizontal(lipgloss.Left, essentialText, hint)
+	// First row: essential keybinds + Ctrl+g hint if there are additional keys
+	firstRowParts := essential
+	if len(additional) > 0 && !showExpanded {
+		firstRowParts = append(firstRowParts, "Ctrl+g for more")
 	}
 	
-	return StyleTextDim.Render(essentialText)
+	essentialText := strings.Join(firstRowParts, " • ")
+	if width > 0 && len(essentialText) > width-4 {
+		essentialText = essentialText[:width-7] + "..."
+	}
+	lines = append(lines, essentialText)
+	
+	if showExpanded && len(additional) > 0 {
+		// Additional rows: each string in additional array becomes a separate row
+		for _, additionalRow := range additional {
+			if width > 0 && len(additionalRow) > width-4 {
+				additionalRow = additionalRow[:width-7] + "..."
+			}
+			lines = append(lines, additionalRow)
+		}
+	}
+	
+	// Join all lines with newlines
+	allText := strings.Join(lines, "\n")
+	return StyleTextDim.Render(allText)
 }
 
 // Compact help for the most common actions
@@ -271,13 +365,17 @@ func CreateStatus(text string, statusType string) string {
 // Option rendering with consistent styling
 func CreateOption(label, description string, isSelected bool) []string {
 	var style lipgloss.Style
+	var prefix string
+	
 	if isSelected {
 		style = StyleFocused
+		prefix = "▶ "
 	} else {
 		style = StyleUnselected
+		prefix = "  " // Two spaces to maintain alignment
 	}
 	
-	lines := []string{style.Render("▶ " + label)}
+	lines := []string{style.Render(prefix + label)}
 	
 	if description != "" {
 		descStyle := lipgloss.NewStyle().
@@ -318,4 +416,18 @@ func CenterModal(content string, width, height int) string {
 		lipgloss.Center,
 		content,
 	)
+}
+
+// Add consistent left padding to main content
+func AddMainPadding(content string) string {
+	paddingStyle := lipgloss.NewStyle().
+		PaddingLeft(2) // 2 spaces of left padding
+	return paddingStyle.Render(content)
+}
+
+// Add consistent left padding to form content (slightly more for nested content)
+func AddFormPadding(content string) string {
+	paddingStyle := lipgloss.NewStyle().
+		PaddingLeft(3) // 3 spaces for form content
+	return paddingStyle.Render(content)
 }

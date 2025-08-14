@@ -94,7 +94,13 @@
       "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt boolean-search create \"ai AND coding\" --text \"tutorial\" --save \"AI Coding Tutorials\" --description \"Find AI coding tutorial prompts\")",
       "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt search-saved list)",
       "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt search-saved:*)",
-      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt:*)"
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt:*)",
+      "WebSearch",
+      "WebFetch(domain:pkg.go.dev)",
+      "Bash(gtimeout:*)",
+      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt create:*)",
+      "Bash(POCKET_PROMPT_DIR=./test-library2 timeout 10s ./pocket-prompt)",
+      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt list)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits",
