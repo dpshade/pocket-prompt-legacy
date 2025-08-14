@@ -645,12 +645,65 @@ func (s *Service) DeleteSavedSearch(name string) error {
 
 // ExecuteSavedSearch executes a saved search by name
 func (s *Service) ExecuteSavedSearch(name string) ([]*models.Prompt, error) {
+	return s.ExecuteSavedSearchWithText(name, "")
+}
+
+// ExecuteSavedSearchWithText executes a saved search with an optional text query override
+func (s *Service) ExecuteSavedSearchWithText(name string, textQueryOverride string) ([]*models.Prompt, error) {
 	savedSearch, err := s.GetSavedSearch(name)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.SearchPromptsByBooleanExpression(savedSearch.Expression)
+	// First apply boolean expression filter
+	results, err := s.SearchPromptsByBooleanExpression(savedSearch.Expression)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine which text query to use
+	textQuery := textQueryOverride
+	if textQuery == "" {
+		textQuery = savedSearch.TextQuery
+	}
+
+	// If no text query, return boolean filter results
+	if textQuery == "" {
+		return results, nil
+	}
+
+	// Apply text search filter on the boolean results
+	return s.filterPromptsByText(results, textQuery), nil
+}
+
+// filterPromptsByText filters prompts using fuzzy text search
+func (s *Service) filterPromptsByText(prompts []*models.Prompt, query string) []*models.Prompt {
+	if query == "" {
+		return prompts
+	}
+
+	// Create searchable strings for each prompt
+	var searchStrings []string
+	for _, p := range prompts {
+		searchStr := fmt.Sprintf("%s %s %s %s", 
+			p.Name, 
+			p.Summary,
+			strings.Join(p.Tags, " "),
+			p.Content,
+		)
+		searchStrings = append(searchStrings, searchStr)
+	}
+
+	// Perform fuzzy search
+	matches := fuzzy.Find(query, searchStrings)
+	
+	// Build results from matches
+	var results []*models.Prompt
+	for _, match := range matches {
+		results = append(results, prompts[match.Index])
+	}
+
+	return results
 }
 
 // Claude Code Import Methods
@@ -666,20 +719,12 @@ func (s *Service) ImportFromClaudeCode(options importer.ImportOptions) (*importe
 
 	// Save imported items to storage if not a dry run
 	if !options.DryRun {
-		// Save prompts (commands, configurations, workflows)
-		allPrompts := append(result.Commands, result.Configurations...)
-		allPrompts = append(allPrompts, result.Workflows...)
+		// Save prompts (agents, commands) and workflows
+		allPrompts := append(result.Prompts, result.Workflows...)
 		
 		for _, prompt := range allPrompts {
 			if err := s.savePromptWithConflictResolution(prompt, options); err != nil {
 				result.Errors = append(result.Errors, fmt.Errorf("failed to save prompt %s: %w", prompt.ID, err))
-			}
-		}
-
-		// Save templates
-		for _, template := range result.Templates {
-			if err := s.saveTemplateWithConflictResolution(template, options); err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("failed to save template %s: %w", template.ID, err))
 			}
 		}
 
@@ -690,8 +735,8 @@ func (s *Service) ImportFromClaudeCode(options importer.ImportOptions) (*importe
 
 		// Sync to git if enabled and no errors occurred
 		if s.gitSync.IsEnabled() && len(result.Errors) == 0 {
-			commitMessage := fmt.Sprintf("Import from Claude Code: %d commands, %d templates, %d configs, %d workflows", 
-				len(result.Commands), len(result.Templates), len(result.Configurations), len(result.Workflows))
+			commitMessage := fmt.Sprintf("Import from Claude Code: %d prompts, %d workflows", 
+				len(result.Prompts), len(result.Workflows))
 			
 			if err := s.gitSync.SyncChanges(commitMessage); err != nil {
 				// Don't fail the operation if git sync fails

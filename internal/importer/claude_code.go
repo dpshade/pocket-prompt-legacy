@@ -43,21 +43,17 @@ type ImportOptions struct {
 
 // ImportResult contains the results of an import operation
 type ImportResult struct {
-	Commands      []*models.Prompt  // Imported command prompts
-	Templates     []*models.Template // Imported templates
-	Configurations []*models.Prompt  // Imported configuration prompts
-	Workflows     []*models.Prompt  // Imported workflow prompts
-	Errors        []error           // Any errors encountered during import
+	Prompts   []*models.Prompt // Imported prompts (from .claude/agents/ and .claude/commands/)
+	Workflows []*models.Prompt // Imported workflow prompts
+	Errors    []error          // Any errors encountered during import
 }
 
 // Import performs the Claude Code import operation
 func (i *ClaudeCodeImporter) Import(options ImportOptions) (*ImportResult, error) {
 	result := &ImportResult{
-		Commands:       []*models.Prompt{},
-		Templates:      []*models.Template{},
-		Configurations: []*models.Prompt{},
-		Workflows:      []*models.Prompt{},
-		Errors:         []error{},
+		Prompts:   []*models.Prompt{},
+		Workflows: []*models.Prompt{},
+		Errors:    []error{},
 	}
 
 	// Determine paths to scan
@@ -150,12 +146,7 @@ func (i *ClaudeCodeImporter) importFromPath(basePath string, options ImportOptio
 		}
 	}
 
-	// Import configuration files (only when explicitly requested)
-	if options.ConfigOnly {
-		if err := i.importConfigurations(basePath, options, result); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("failed to import configurations: %w", err))
-		}
-	}
+	// Configuration imports removed - not needed for Pocket Prompt
 
 	return nil
 }
@@ -172,17 +163,14 @@ func (i *ClaudeCodeImporter) importCommands(commandsPath string, options ImportO
 		}
 
 		if !info.IsDir() && strings.HasSuffix(path, ".md") {
-			prompt, template, err := i.importCommandFile(path, commandsPath, options)
+			prompt, err := i.importCommandFile(path, commandsPath, options)
 			if err != nil {
 				result.Errors = append(result.Errors, fmt.Errorf("failed to import command %s: %w", path, err))
 				return nil // Continue walking
 			}
 
-			if template != nil {
-				result.Templates = append(result.Templates, template)
-			}
 			if prompt != nil {
-				result.Commands = append(result.Commands, prompt)
+				result.Prompts = append(result.Prompts, prompt)
 			}
 		}
 
@@ -202,17 +190,14 @@ func (i *ClaudeCodeImporter) importAgents(agentsPath string, options ImportOptio
 		}
 
 		if !info.IsDir() && strings.HasSuffix(path, ".md") {
-			prompt, template, err := i.importAgentFile(path, agentsPath, options)
+			prompt, err := i.importAgentFile(path, agentsPath, options)
 			if err != nil {
 				result.Errors = append(result.Errors, fmt.Errorf("failed to import agent %s: %w", path, err))
 				return nil // Continue walking
 			}
 
-			if template != nil {
-				result.Templates = append(result.Templates, template)
-			}
 			if prompt != nil {
-				result.Commands = append(result.Commands, prompt)
+				result.Prompts = append(result.Prompts, prompt)
 			}
 		}
 
@@ -221,10 +206,10 @@ func (i *ClaudeCodeImporter) importAgents(agentsPath string, options ImportOptio
 }
 
 // importAgentFile imports a single agent file
-func (i *ClaudeCodeImporter) importAgentFile(filePath, agentsRoot string, options ImportOptions) (*models.Prompt, *models.Template, error) {
+func (i *ClaudeCodeImporter) importAgentFile(filePath, agentsRoot string, options ImportOptions) (*models.Prompt, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	// Parse the file
@@ -276,56 +261,45 @@ func (i *ClaudeCodeImporter) importAgentFile(filePath, agentsRoot string, option
 	// Extract title from first line of content if available
 	title := i.extractTitle(markdownContent, filePath)
 
-	// Check if this should be a template (has variables)
+	// Extract variables for metadata (but don't process content)
 	variables := i.extractVariables(markdownContent)
-	processedContent := i.processContent(markdownContent, variables)
 
 	now := time.Now()
 
+	// Always create as prompt (never as template)
+	// Store variable information in metadata for reference
+	metadata := map[string]interface{}{
+		"source":        "claude-code-agent",
+		"original_path": filePath,
+		"agent_type":    agentType,
+		"tools":         tools,
+	}
+	
 	if len(variables) > 0 {
-		// Create as template
-		template := &models.Template{
-			ID:          id,
-			Version:     "1.0.0",
-			Name:        title,
-			Description: description,
-			Content:     processedContent,
-			Slots:       variables,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-			FilePath:    filepath.Join("templates", i.sanitizeFilename(id)+".md"),
-		}
-
-		return nil, template, nil
+		metadata["variables"] = variables
 	}
 
-	// Create as prompt
 	prompt := &models.Prompt{
 		ID:        id,
 		Version:   "1.0.0",
 		Name:      title,
 		Summary:   description,
-		Content:   processedContent,
+		Content:   markdownContent, // Use original content, not processed
 		Tags:      tags,
 		CreatedAt: now,
 		UpdatedAt: now,
 		FilePath:  filepath.Join("prompts", i.sanitizeFilename(id)+".md"),
-		Metadata: map[string]interface{}{
-			"source":        "claude-code-agent",
-			"original_path": filePath,
-			"agent_type":    agentType,
-			"tools":         tools,
-		},
+		Metadata:  metadata,
 	}
 
-	return prompt, nil, nil
+	return prompt, nil
 }
 
 // importCommandFile imports a single command file
-func (i *ClaudeCodeImporter) importCommandFile(filePath, commandsRoot string, options ImportOptions) (*models.Prompt, *models.Template, error) {
+func (i *ClaudeCodeImporter) importCommandFile(filePath, commandsRoot string, options ImportOptions) (*models.Prompt, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	// Parse the file
@@ -370,48 +344,37 @@ func (i *ClaudeCodeImporter) importCommandFile(filePath, commandsRoot string, op
 	// Extract title from first line of content if available
 	title := i.extractTitle(markdownContent, filePath)
 
-	// Check if this should be a template (has variables)
+	// Extract variables for metadata (but don't process content)
 	variables := i.extractVariables(markdownContent)
-	processedContent := i.processContent(markdownContent, variables)
 
 	now := time.Now()
 
+	// Always create as prompt (never as template)
+	// Store variable information in metadata for reference
+	metadata := map[string]interface{}{
+		"source":        "claude-code-command",
+		"original_path": filePath,
+		"allowed_tools": allowedTools,
+	}
+	
 	if len(variables) > 0 {
-		// Create as template
-		template := &models.Template{
-			ID:          id,
-			Version:     "1.0.0",
-			Name:        title,
-			Description: description,
-			Content:     processedContent,
-			Slots:       variables,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-			FilePath:    filepath.Join("templates", i.sanitizeFilename(id)+".md"),
-		}
-
-		return nil, template, nil
+		metadata["variables"] = variables
 	}
 
-	// Create as prompt
 	prompt := &models.Prompt{
 		ID:        id,
 		Version:   "1.0.0",
 		Name:      title,
 		Summary:   description,
-		Content:   processedContent,
+		Content:   markdownContent, // Use original content, not processed
 		Tags:      tags,
 		CreatedAt: now,
 		UpdatedAt: now,
 		FilePath:  filepath.Join("prompts", i.sanitizeFilename(id)+".md"),
-		Metadata: map[string]interface{}{
-			"source":         "claude-code-command",
-			"original_path":  filePath,
-			"allowed_tools":  allowedTools,
-		},
+		Metadata:  metadata,
 	}
 
-	return prompt, nil, nil
+	return prompt, nil
 }
 
 // importWorkflows imports GitHub Actions workflows
@@ -506,7 +469,8 @@ func (i *ClaudeCodeImporter) importConfigurations(basePath string, options Impor
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("failed to import CLAUDE.md: %w", err))
 		} else if prompt != nil {
-			result.Configurations = append(result.Configurations, prompt)
+			// Configuration imports are disabled - these would become regular prompts if needed
+			result.Prompts = append(result.Prompts, prompt)
 		}
 	}
 
@@ -525,7 +489,8 @@ func (i *ClaudeCodeImporter) importConfigurations(basePath string, options Impor
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("failed to import settings: %w", err))
 		} else if prompt != nil {
-			result.Configurations = append(result.Configurations, prompt)
+			// Configuration imports are disabled - these would become regular prompts if needed
+			result.Prompts = append(result.Prompts, prompt)
 		}
 	}
 

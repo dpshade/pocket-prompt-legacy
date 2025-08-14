@@ -12,6 +12,7 @@ import (
 type SaveSearchModal struct {
 	nameInput   textinput.Model
 	expression  *models.BooleanExpression
+	textQuery   string
 	isActive       bool
 	width          int
 	height         int
@@ -40,6 +41,11 @@ func (m *SaveSearchModal) SetExpression(expr *models.BooleanExpression) {
 	m.expression = expr
 }
 
+// SetTextQuery sets the text query to be saved
+func (m *SaveSearchModal) SetTextQuery(textQuery string) {
+	m.textQuery = textQuery
+}
+
 // Update handles input for the modal
 func (m *SaveSearchModal) Update(msg tea.Msg) tea.Cmd {
 	if !m.isActive {
@@ -65,6 +71,7 @@ func (m *SaveSearchModal) Update(msg tea.Msg) tea.Cmd {
 				m.savedSearch = &models.SavedSearch{
 					Name:       name,
 					Expression: m.expression,
+					TextQuery:  m.textQuery,
 				}
 				m.submitted = true
 				return nil
@@ -117,7 +124,7 @@ func (m *SaveSearchModal) View() string {
 
 	// Show the expression being saved
 	if m.expression != nil {
-		content = append(content, "Expression: "+expressionStyle.Render(m.expression.String()))
+		content = append(content, labelStyle.Render("Expression: ")+expressionStyle.Render(m.expression.String()))
 		content = append(content, "")
 	}
 
@@ -157,6 +164,8 @@ func (m *SaveSearchModal) SetEditMode(savedSearch *models.SavedSearch, newExpres
 	m.originalSearch = savedSearch
 	m.expression = newExpression
 	m.nameInput.SetValue(savedSearch.Name)
+	// Preserve the original text query from the saved search
+	m.textQuery = savedSearch.TextQuery
 }
 
 // ClearEditMode clears edit mode

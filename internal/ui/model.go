@@ -500,6 +500,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.saveSearchModal = NewSaveSearchModal()
 				}
 				m.saveSearchModal.SetExpression(m.booleanSearchModal.GetExpression())
+				m.saveSearchModal.SetTextQuery(m.booleanSearchModal.GetTextQuery())
+				
+				// If editing, pre-populate the save modal with existing search info
+				if m.booleanSearchModal.IsEditMode() {
+					if originalSearch := m.booleanSearchModal.GetOriginalSearch(); originalSearch != nil {
+						m.saveSearchModal.SetEditMode(originalSearch, m.booleanSearchModal.GetExpression())
+					}
+				}
+				
 				m.saveSearchModal.SetActive(true)
 				return m, nil
 			}

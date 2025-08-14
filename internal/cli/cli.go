@@ -812,11 +812,33 @@ func (c *CLI) handleSavedSearches(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("search-saved run requires a search name")
 		}
-		prompts, err := c.service.ExecuteSavedSearch(args[1])
+		
+		searchName := args[1]
+		var textQuery string
+		var format string
+		
+		// Parse flags
+		for i := 2; i < len(args); i++ {
+			arg := args[i]
+			switch arg {
+			case "--text", "-t":
+				if i+1 < len(args) {
+					textQuery = args[i+1]
+					i++
+				}
+			case "--format", "-f":
+				if i+1 < len(args) {
+					format = args[i+1]
+					i++
+				}
+			}
+		}
+		
+		prompts, err := c.service.ExecuteSavedSearchWithText(searchName, textQuery)
 		if err != nil {
 			return fmt.Errorf("failed to execute saved search: %w", err)
 		}
-		return c.formatOutput(prompts, "")
+		return c.formatOutput(prompts, format)
 	default:
 		return fmt.Errorf("unknown search-saved subcommand: %s", subcommand)
 	}
@@ -1169,7 +1191,32 @@ func (c *CLI) createBooleanSearch(args []string) error {
 	}
 
 	name := args[0]
-	expression := strings.Join(args[1:], " ")
+	var textQuery string
+	var expressionParts []string
+	
+	// Parse flags
+	i := 1
+	for i < len(args) {
+		arg := args[i]
+		switch arg {
+		case "--text", "-t":
+			if i+1 < len(args) {
+				textQuery = args[i+1]
+				i += 2
+			} else {
+				i++
+			}
+		default:
+			expressionParts = append(expressionParts, arg)
+			i++
+		}
+	}
+	
+	if len(expressionParts) == 0 {
+		return fmt.Errorf("boolean expression is required")
+	}
+	
+	expression := strings.Join(expressionParts, " ")
 
 	// Parse the boolean expression
 	expr, err := parseBooleanExpression(expression)
@@ -1180,13 +1227,18 @@ func (c *CLI) createBooleanSearch(args []string) error {
 	savedSearch := models.SavedSearch{
 		Name:       name,
 		Expression: expr,
+		TextQuery:  textQuery,
 	}
 
 	if err := c.service.SaveBooleanSearch(savedSearch); err != nil {
 		return fmt.Errorf("failed to save boolean search: %w", err)
 	}
 
-	fmt.Printf("Created boolean search: %s\n", name)
+	message := fmt.Sprintf("Created boolean search: %s", name)
+	if textQuery != "" {
+		message += fmt.Sprintf(" (with text filter: '%s')", textQuery)
+	}
+	fmt.Println(message)
 	return nil
 }
 
@@ -1490,24 +1542,10 @@ func (c *CLI) handleClaudeCodeImport(args []string) error {
 		fmt.Println("============================")
 	}
 
-	if len(result.Commands) > 0 {
-		fmt.Printf("Commands: %d\n", len(result.Commands))
-		for _, cmd := range result.Commands {
-			fmt.Printf("  - %s (%s)\n", cmd.Name, cmd.ID)
-		}
-	}
-
-	if len(result.Templates) > 0 {
-		fmt.Printf("Templates: %d\n", len(result.Templates))
-		for _, tmpl := range result.Templates {
-			fmt.Printf("  - %s (%s)\n", tmpl.Name, tmpl.ID)
-		}
-	}
-
-	if len(result.Configurations) > 0 {
-		fmt.Printf("Configurations: %d\n", len(result.Configurations))
-		for _, cfg := range result.Configurations {
-			fmt.Printf("  - %s (%s)\n", cfg.Name, cfg.ID)
+	if len(result.Prompts) > 0 {
+		fmt.Printf("Prompts: %d\n", len(result.Prompts))
+		for _, prompt := range result.Prompts {
+			fmt.Printf("  - %s (%s)\n", prompt.Name, prompt.ID)
 		}
 	}
 
@@ -1528,7 +1566,7 @@ func (c *CLI) handleClaudeCodeImport(args []string) error {
 	if options.DryRun {
 		fmt.Printf("\nTo actually import these items, run the same command without --preview\n")
 	} else {
-		total := len(result.Commands) + len(result.Templates) + len(result.Configurations) + len(result.Workflows)
+		total := len(result.Prompts) + len(result.Workflows)
 		fmt.Printf("\nSuccessfully imported %d items from Claude Code\n", total)
 	}
 

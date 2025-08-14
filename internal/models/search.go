@@ -28,6 +28,7 @@ type SavedSearch struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
 	Expression  *BooleanExpression `json:"expression"`
+	TextQuery   string             `json:"text_query,omitempty"` // Optional text search filter
 	CreatedAt   string             `json:"created_at"`
 	UpdatedAt   string             `json:"updated_at"`
 }

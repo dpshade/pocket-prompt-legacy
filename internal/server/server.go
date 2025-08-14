@@ -335,15 +335,20 @@ func (s *URLServer) handleSavedSearch(w http.ResponseWriter, r *http.Request, pa
 
 	searchName := parts[0]
 	format := r.URL.Query().Get("format")
+	textQuery := r.URL.Query().Get("q")
 
-	prompts, err := s.service.ExecuteSavedSearch(searchName)
+	prompts, err := s.service.ExecuteSavedSearchWithText(searchName, textQuery)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to execute saved search: %v", err), http.StatusNotFound)
 		return
 	}
 
 	content := s.formatPrompts(prompts, format)
-	s.writeContentResponse(w, content, fmt.Sprintf("Saved search '%s' found %d prompts", searchName, len(prompts)))
+	message := fmt.Sprintf("Saved search '%s' found %d prompts", searchName, len(prompts))
+	if textQuery != "" {
+		message += fmt.Sprintf(" (filtered by text: '%s')", textQuery)
+	}
+	s.writeContentResponse(w, content, message)
 }
 
 // handleSavedSearches lists saved searches
@@ -703,7 +708,9 @@ GET /pocket-prompt/boolean?expr=ai+AND+analysis
 #### Saved Searches
 GET /pocket-prompt/saved-search/{name}
 - Execute a previously saved boolean search
-- Format options available
+- Parameters:
+  - q: optional text query filter (overrides saved text query)
+  - format: text (default), json, ids, table
 
 GET /pocket-prompt/saved-searches/list
 - List all saved boolean searches

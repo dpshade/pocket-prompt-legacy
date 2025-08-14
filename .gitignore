@@ -39,3 +39,6 @@ Thumbs.db
 .vscode/
 dist
 debug.log
+
+# Claude Code settings
+.claude/settings.local.json

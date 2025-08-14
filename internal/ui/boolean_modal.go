@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dpshade/pocket-prompt/internal/models"
@@ -14,14 +15,17 @@ import (
 // BooleanSearchModal provides a modal interface for boolean search
 type BooleanSearchModal struct {
 	textarea       textarea.Model
+	textInput      textinput.Model
 	availableTags  []string
 	searchResults  []*models.Prompt
 	currentQuery   string
+	textQuery      string
 	expression     *models.BooleanExpression
 	isActive       bool
 	width          int
 	height         int
 	focusResults   bool
+	focusTextInput bool // Whether text input has focus
 	resultsCursor  int
 	showHelp       bool
 	searchFunc     func(*models.BooleanExpression) ([]*models.Prompt, error) // Callback for live search
@@ -41,8 +45,14 @@ func NewBooleanSearchModal(availableTags []string) *BooleanSearchModal {
 	ta.SetWidth(70)
 	ta.SetHeight(3)
 
+	ti := textinput.New()
+	ti.Placeholder = "Optional: text search within boolean results"
+	ti.CharLimit = 200
+	ti.Width = 70
+
 	return &BooleanSearchModal{
 		textarea:      ta,
+		textInput:     ti,
 		availableTags: availableTags,
 		isActive:      false,
 		showHelp:      true,
@@ -68,13 +78,28 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
-			if len(m.searchResults) > 0 {
-				m.focusResults = !m.focusResults
-				if m.focusResults {
+			// Cycle focus: textarea -> text input -> results (if any) -> textarea
+			if m.focusResults {
+				// Currently on results, go back to textarea
+				m.focusResults = false
+				m.focusTextInput = false
+				m.textarea.Focus()
+				m.textInput.Blur()
+			} else if m.focusTextInput {
+				// Currently on text input, go to results if available, otherwise textarea
+				m.focusTextInput = false
+				m.textInput.Blur()
+				if len(m.searchResults) > 0 {
+					m.focusResults = true
 					m.textarea.Blur()
 				} else {
 					m.textarea.Focus()
 				}
+			} else {
+				// Currently on textarea, go to text input
+				m.focusTextInput = true
+				m.textarea.Blur()
+				m.textInput.Focus()
 			}
 			return nil
 
@@ -108,9 +133,10 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) && !m.focusResults:
+		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) && !m.focusResults && !m.focusTextInput:
 			// Parse and apply search, then close modal and return to list
 			m.currentQuery = m.textarea.Value()
+			m.textQuery = m.textInput.Value()
 			if m.currentQuery != "" {
 				expr, err := m.parseQuery(m.currentQuery)
 				if err == nil {
@@ -122,7 +148,8 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
-		if !m.focusResults {
+		// Handle textarea updates
+		if !m.focusResults && !m.focusTextInput {
 			oldQuery := m.textarea.Value()
 			m.textarea, cmd = m.textarea.Update(msg)
 			newQuery := m.textarea.Value()
@@ -148,6 +175,18 @@ func (m *BooleanSearchModal) Update(msg tea.Msg) tea.Cmd {
 					m.searchResults = nil
 					m.expression = nil
 				}
+			}
+		}
+
+		// Handle text input updates
+		if m.focusTextInput {
+			oldTextQuery := m.textInput.Value()
+			m.textInput, cmd = m.textInput.Update(msg)
+			newTextQuery := m.textInput.Value()
+			
+			// Update text query
+			if newTextQuery != oldTextQuery {
+				m.textQuery = newTextQuery
 			}
 		}
 	}
@@ -216,6 +255,9 @@ func (m *BooleanSearchModal) View() string {
 		Bold(true).
 		MarginBottom(1)
 
+	headerStyle := lipgloss.NewStyle().
+		Bold(true)
+
 	helpStyle := lipgloss.NewStyle().
 		Italic(true).
 		MarginTop(1)
@@ -248,15 +290,34 @@ func (m *BooleanSearchModal) View() string {
 		content = append(content, tagHintStyle.Render("Available tags: "+tagsPreview))
 	}
 
-	// Text area
+	// Boolean search textarea
+	textareaTitle := "Boolean Expression:"
+	if !m.focusTextInput && !m.focusResults {
+		textareaTitle = "▶ " + textareaTitle
+	}
+	content = append(content, headerStyle.Render(textareaTitle))
 	content = append(content, m.textarea.View())
+
+	// Text search input
+	textInputTitle := "Text Filter (optional):"
+	if m.focusTextInput {
+		textInputTitle = "▶ " + textInputTitle
+	}
+	content = append(content, "")
+	content = append(content, headerStyle.Render(textInputTitle))
+	content = append(content, m.textInput.View())
 
 	// Current expression
 	if m.expression != nil {
 		exprStyle := lipgloss.NewStyle().
 			Reverse(true).
 			Padding(0, 1)
-		content = append(content, "Expression: "+exprStyle.Render(m.expression.String()))
+		exprText := m.expression.String()
+		if m.textQuery != "" {
+			exprText += fmt.Sprintf(" + text:\"%s\"", m.textQuery)
+		}
+		content = append(content, "")
+		content = append(content, "Expression: "+exprStyle.Render(exprText))
 	}
 
 	// Results
@@ -298,7 +359,8 @@ func (m *BooleanSearchModal) View() string {
 	// Help
 	if m.showHelp {
 		helpText := "Examples: 'tag1 AND tag2', 'tag3 OR tag4', 'NOT tag5'\n" +
-			"Live search • Tab: toggle focus • ↑/↓: navigate results • Ctrl+S: save search • Ctrl+H: toggle help • Esc: close"
+			"Text filter searches within boolean results using fuzzy matching\n" +
+			"Tab: cycle focus (boolean → text → results) • ↑/↓: navigate results • Ctrl+S: save search • Ctrl+H: toggle help • Esc: close"
 		content = append(content, helpStyle.Render(helpText))
 	}
 
@@ -323,7 +385,9 @@ func (m *BooleanSearchModal) SetEditMode(savedSearch *models.SavedSearch) {
 	m.originalSearch = savedSearch
 	m.expression = savedSearch.Expression
 	m.currentQuery = savedSearch.Expression.String()
+	m.textQuery = savedSearch.TextQuery
 	m.textarea.SetValue(m.currentQuery)
+	m.textInput.SetValue(m.textQuery)
 	
 	// Trigger search to show current results
 	if m.searchFunc != nil {
@@ -401,6 +465,11 @@ func (m *BooleanSearchModal) GetExpression() *models.BooleanExpression {
 	return m.expression
 }
 
+// GetTextQuery returns the current text query
+func (m *BooleanSearchModal) GetTextQuery() string {
+	return m.textQuery
+}
+
 // GetSelectedResult returns the currently selected result
 func (m *BooleanSearchModal) GetSelectedResult() *models.Prompt {
 	if m.focusResults && m.resultsCursor < len(m.searchResults) {
@@ -414,9 +483,10 @@ func (m *BooleanSearchModal) Resize(width, height int) {
 	m.width = width
 	m.height = height
 	
-	// Adjust textarea width based on modal size
-	taWidth := min(70, width-8)
-	m.textarea.SetWidth(taWidth)
+	// Adjust textarea and text input width based on modal size
+	inputWidth := min(70, width-8)
+	m.textarea.SetWidth(inputWidth)
+	m.textInput.Width = inputWidth
 }
 
 // min helper function
