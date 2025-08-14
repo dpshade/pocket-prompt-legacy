@@ -531,7 +531,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			// Check if a result was selected
 			if selectedPrompt := m.booleanSearchModal.GetSelectedResult(); selectedPrompt != nil {
-				m.selectedPrompt = selectedPrompt
+				// Load full prompt with content from service
+				fullPrompt, err := m.service.GetPrompt(selectedPrompt.ID)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+				m.selectedPrompt = fullPrompt
 				m.viewMode = ViewPromptDetail
 				m.booleanSearchModal.SetActive(false)
 				// Render the prompt preview
@@ -685,7 +691,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Enter):
 			if m.viewMode == ViewLibrary && !m.loading {
 				if i, ok := m.promptList.SelectedItem().(*models.Prompt); ok {
-					m.selectedPrompt = i
+					// Load full prompt with content from service
+					fullPrompt, err := m.service.GetPrompt(i.ID)
+					if err != nil {
+						m.err = err
+						return m, nil
+					}
+					m.selectedPrompt = fullPrompt
 					m.viewMode = ViewPromptDetail
 					// Render the prompt preview
 					if err := m.renderPreview(); err != nil {
@@ -756,15 +768,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								m.statusMsg = "Prompt saved successfully!"
 							}
 							m.statusTimeout = 2
-							// Refresh prompt list
-							if prompts, err := m.service.ListPrompts(); err == nil {
-								m.prompts = prompts
-								// Update list items
-								items := make([]list.Item, len(prompts))
-								for i, p := range prompts {
-									items[i] = p
-								}
-								m.promptList.SetItems(items)
+							// Refresh prompt list (respects active boolean search filter)
+							if err := m.refreshPromptList(); err != nil {
+								m.statusMsg = fmt.Sprintf("Failed to refresh list: %v", err)
+								m.statusTimeout = 3
 							}
 							// Go back to library
 							m.viewMode = ViewLibrary
@@ -821,15 +828,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else {
 								m.statusMsg = "Prompt deleted successfully!"
 								m.statusTimeout = 2
-								// Refresh prompt list
-								if prompts, err := m.service.ListPrompts(); err == nil {
-									m.prompts = prompts
-									// Update list items
-									items := make([]list.Item, len(prompts))
-									for i, p := range prompts {
-										items[i] = p
-									}
-									m.promptList.SetItems(items)
+								// Refresh prompt list (respects active boolean search filter)
+								if err := m.refreshPromptList(); err != nil {
+									m.statusMsg = fmt.Sprintf("Failed to refresh list: %v", err)
+									m.statusTimeout = 3
 								}
 								// Go back to library
 								m.viewMode = ViewLibrary
@@ -977,9 +979,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewLibrary:
 				if !m.loading {
 					if i, ok := m.promptList.SelectedItem().(*models.Prompt); ok {
-						m.selectedPrompt = i
+						// Load full prompt with content from service
+						fullPrompt, err := m.service.GetPrompt(i.ID)
+						if err != nil {
+							m.err = err
+							return m, nil
+						}
+						m.selectedPrompt = fullPrompt
 						m.createForm = NewCreateForm()
-						m.createForm.LoadPrompt(i)
+						m.createForm.LoadPrompt(fullPrompt)
 						m.editMode = true
 						m.viewMode = ViewEditPrompt
 					}
@@ -1241,15 +1249,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.statusMsg = "Prompt created successfully!"
 					m.statusTimeout = 2
-					// Refresh prompt list
-					if prompts, err := m.service.ListPrompts(); err == nil {
-						m.prompts = prompts
-						// Update list items
-						items := make([]list.Item, len(prompts))
-						for i, p := range prompts {
-							items[i] = p
-						}
-						m.promptList.SetItems(items)
+					// Refresh prompt list (respects active boolean search filter)
+					if err := m.refreshPromptList(); err != nil {
+						m.statusMsg = fmt.Sprintf("Failed to refresh list: %v", err)
+						m.statusTimeout = 3
 					}
 					// Go back to library
 					m.viewMode = ViewLibrary
@@ -2256,6 +2259,38 @@ func (m *Model) renderHelpModal() string {
 		lipgloss.Center,
 		modal,
 	)
+}
+
+// refreshPromptList refreshes the prompt list, respecting any active boolean search filter
+func (m *Model) refreshPromptList() error {
+	var prompts []*models.Prompt
+	var err error
+
+	// If there's an active boolean search expression, apply the filter
+	if m.currentExpression != nil {
+		prompts, err = m.service.SearchPromptsByBooleanExpression(m.currentExpression)
+		if err != nil {
+			return fmt.Errorf("failed to apply boolean search filter: %w", err)
+		}
+	} else {
+		// No filter active, get all prompts
+		prompts, err = m.service.ListPrompts()
+		if err != nil {
+			return fmt.Errorf("failed to list prompts: %w", err)
+		}
+	}
+
+	// Update the model state
+	m.prompts = prompts
+	
+	// Update list items
+	items := make([]list.Item, len(prompts))
+	for i, p := range prompts {
+		items[i] = p
+	}
+	m.promptList.SetItems(items)
+	
+	return nil
 }
 
 // renderPreview renders the selected prompt for preview

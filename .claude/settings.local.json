@@ -62,8 +62,29 @@
       "Bash(cd:*)",
       "Bash(./pocket-prompt --help)",
       "Bash(cat:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(./pocket-prompt:*)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt import claude-code --preview)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt --init)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt import claude-code --commands-only)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt import claude-code --commands-only --skip-existing)",
+      "Bash(POCKET_PROMPT_DIR=. ../pocket-prompt import claude-code --commands-only)",
+      "Bash(sed:*)",
+      "Bash(POCKET_PROMPT_DIR=. ../pocket-prompt list --format ids)",
+      "Bash(POCKET_PROMPT_DIR=. ../pocket-prompt get claude-code-git-push)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt get claude-code-git-push)",
+      "Bash(POCKET_PROMPT_DIR=./test-library timeout 10s ./pocket-prompt)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt create:*)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt get:*)",
+      "Bash(POCKET_PROMPT_DIR=./test-library ./pocket-prompt import:*)",
+      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt --init)",
+      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt import claude-code --preview)",
+      "Bash(POCKET_PROMPT_DIR=./test-library2 ./pocket-prompt import claude-code --commands-only --preview)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "/Users/dylanshade/Library/Mobile Documents/com~apple~CloudDocs/.claude/agents"
+    ],
+    "defaultMode": "acceptEdits"
   }
 }

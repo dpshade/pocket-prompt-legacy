@@ -168,7 +168,7 @@ func (s *Service) SearchPrompts(query string) ([]*models.Prompt, error) {
 	return results, nil
 }
 
-// GetPrompt returns a prompt by ID
+// GetPrompt returns a prompt by ID with full content loaded
 func (s *Service) GetPrompt(id string) (*models.Prompt, error) {
 	prompts, err := s.ListPrompts()
 	if err != nil {
@@ -177,6 +177,14 @@ func (s *Service) GetPrompt(id string) (*models.Prompt, error) {
 
 	for _, p := range prompts {
 		if p.ID == id {
+			// If content is empty (from cache), load it from storage
+			if p.Content == "" && p.FilePath != "" {
+				fullPrompt, err := s.storage.LoadPrompt(p.FilePath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load prompt content: %w", err)
+				}
+				return fullPrompt, nil
+			}
 			return p, nil
 		}
 	}
@@ -707,30 +715,63 @@ func (s *Service) savePromptWithConflictResolution(prompt *models.Prompt, option
 	// Check if prompt already exists
 	existing, err := s.GetPrompt(prompt.ID)
 	if err == nil {
-		// Prompt exists, apply conflict resolution
+		// Prompt exists, check if content has changed
+		contentChanged := existing.Content != prompt.Content
+		tagsChanged := !equalStringSlices(existing.Tags, prompt.Tags)
+		metadataChanged := !equalMetadata(existing.Metadata, prompt.Metadata)
+		
+		// If nothing has changed, skip the update
+		if !contentChanged && !tagsChanged && !metadataChanged {
+			return nil // No changes, skip silently
+		}
+		
+		// Apply conflict resolution for changed content
 		if options.SkipExisting {
-			return nil // Skip without error
+			return nil // Skip without error even if content changed
 		}
 		
 		if options.DeduplicateByPath {
 			// Check if it's the same source file
 			if existingPath, ok := existing.Metadata["original_path"].(string); ok {
 				if newPath, ok := prompt.Metadata["original_path"].(string); ok && existingPath == newPath {
-					return nil // Skip duplicate from same source
+					// Same source file, but check if content changed
+					if !contentChanged && !tagsChanged && !metadataChanged {
+						return nil // Skip if no changes
+					}
+					// Continue to update if content changed
 				}
 			}
 		}
 		
-		if !options.OverwriteExisting {
+		if !options.OverwriteExisting && !contentChanged && !tagsChanged {
 			return fmt.Errorf("prompt %s already exists (use --overwrite to overwrite or --skip-existing to skip)", prompt.ID)
 		}
 		
-		// Update existing prompt while preserving creation time
+		// Content has changed, archive old version and increment version
+		if contentChanged || tagsChanged {
+			// Archive the old version
+			if err := s.archivePromptByTag(existing); err != nil {
+				return fmt.Errorf("failed to archive old version: %w", err)
+			}
+			
+			// Increment version
+			newVersion, err := s.incrementVersion(existing.Version)
+			if err != nil {
+				return fmt.Errorf("failed to increment version: %w", err)
+			}
+			prompt.Version = newVersion
+		} else {
+			// Keep the same version if only metadata changed
+			prompt.Version = existing.Version
+		}
+		
+		// Preserve creation time, update the rest
 		prompt.CreatedAt = existing.CreatedAt
 		prompt.UpdatedAt = time.Now()
+		prompt.FilePath = existing.FilePath // Keep the same file path
 	}
 	
-	return s.SavePrompt(prompt)
+	return s.storage.SavePrompt(prompt)
 }
 
 // saveTemplateWithConflictResolution handles conflict resolution when saving imported templates
@@ -738,19 +779,101 @@ func (s *Service) saveTemplateWithConflictResolution(template *models.Template, 
 	// Check if template already exists
 	existing, err := s.GetTemplate(template.ID)
 	if err == nil {
-		// Template exists, apply conflict resolution
-		if options.SkipExisting {
-			return nil // Skip without error
+		// Template exists, check if content has changed
+		contentChanged := existing.Content != template.Content
+		slotsChanged := !equalTemplateSlots(existing.Slots, template.Slots)
+		
+		// If nothing has changed, skip the update
+		if !contentChanged && !slotsChanged {
+			return nil // No changes, skip silently
 		}
 		
-		if !options.OverwriteExisting {
+		// Apply conflict resolution for changed content
+		if options.SkipExisting {
+			return nil // Skip without error even if content changed
+		}
+		
+		if !options.OverwriteExisting && !contentChanged && !slotsChanged {
 			return fmt.Errorf("template %s already exists (use --overwrite to overwrite or --skip-existing to skip)", template.ID)
 		}
 		
-		// Update existing template while preserving creation time
+		// Content has changed, increment version
+		if contentChanged || slotsChanged {
+			// Increment version
+			newVersion, err := s.incrementVersion(existing.Version)
+			if err != nil {
+				return fmt.Errorf("failed to increment version: %w", err)
+			}
+			template.Version = newVersion
+		} else {
+			// Keep the same version if nothing important changed
+			template.Version = existing.Version
+		}
+		
+		// Preserve creation time, update the rest
 		template.CreatedAt = existing.CreatedAt
 		template.UpdatedAt = time.Now()
+		template.FilePath = existing.FilePath // Keep the same file path
 	}
 	
-	return s.SaveTemplate(template)
+	return s.storage.SaveTemplate(template)
+}
+
+// Helper functions for import conflict resolution
+
+// equalStringSlices compares two string slices for equality
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	// Create maps for comparison (order doesn't matter for tags)
+	aMap := make(map[string]bool)
+	for _, v := range a {
+		aMap[v] = true
+	}
+	for _, v := range b {
+		if !aMap[v] {
+			return false
+		}
+	}
+	return true
+}
+
+// equalMetadata compares two metadata maps for equality
+func equalMetadata(a, b map[string]interface{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, aVal := range a {
+		bVal, ok := b[key]
+		if !ok {
+			return false
+		}
+		// Simple comparison - could be enhanced for deep equality
+		if fmt.Sprintf("%v", aVal) != fmt.Sprintf("%v", bVal) {
+			return false
+		}
+	}
+	return true
+}
+
+// equalTemplateSlots compares two template slot slices for equality
+func equalTemplateSlots(a, b []models.Slot) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	// Create maps for comparison by name
+	aMap := make(map[string]models.Slot)
+	for _, slot := range a {
+		aMap[slot.Name] = slot
+	}
+	for _, slot := range b {
+		if aSlot, ok := aMap[slot.Name]; !ok || 
+			aSlot.Required != slot.Required || 
+			aSlot.Description != slot.Description || 
+			aSlot.Default != slot.Default {
+			return false
+		}
+	}
+	return true
 }

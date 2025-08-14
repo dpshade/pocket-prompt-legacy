@@ -80,17 +80,34 @@ func (i *ClaudeCodeImporter) determinePaths(options ImportOptions) []string {
 		// Use specified path
 		paths = append(paths, options.Path)
 	} else {
-		// Use current directory
+		// Default behavior: check both current directory AND user-level directories
+		// Add current directory
 		if cwd, err := os.Getwd(); err == nil {
 			paths = append(paths, cwd)
 		}
-	}
-
-	if options.UserLevel {
-		// Add user-level Claude Code directory
+		
+		// Always check user-level directories when no specific path is given
 		if homeDir, err := os.UserHomeDir(); err == nil {
 			userClaudeDir := filepath.Join(homeDir, ".claude")
 			paths = append(paths, userClaudeDir)
+		}
+	}
+
+	// If --user flag is explicitly set and a path was specified, also add user-level
+	if options.UserLevel && options.Path != "" {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			userClaudeDir := filepath.Join(homeDir, ".claude")
+			// Only add if not already in paths
+			alreadyAdded := false
+			for _, p := range paths {
+				if p == userClaudeDir {
+					alreadyAdded = true
+					break
+				}
+			}
+			if !alreadyAdded {
+				paths = append(paths, userClaudeDir)
+			}
 		}
 	}
 
@@ -99,24 +116,42 @@ func (i *ClaudeCodeImporter) determinePaths(options ImportOptions) []string {
 
 // importFromPath imports from a single path
 func (i *ClaudeCodeImporter) importFromPath(basePath string, options ImportOptions, result *ImportResult) error {
-	// Import commands from .claude/commands/
+	// Check if we're already in a .claude directory (for user-level imports)
+	isClaudeDir := filepath.Base(basePath) == ".claude"
+	
+	// Import commands from .claude/commands/ or commands/ if already in .claude
 	if !options.WorkflowsOnly && !options.ConfigOnly {
-		commandsPath := filepath.Join(basePath, ".claude", "commands")
+		var commandsPath, agentsPath string
+		
+		if isClaudeDir {
+			// We're already in ~/.claude, so look for commands/ and agents/ directly
+			commandsPath = filepath.Join(basePath, "commands")
+			agentsPath = filepath.Join(basePath, "agents")
+		} else {
+			// We're in a project directory, look for .claude/commands/ and .claude/agents/
+			commandsPath = filepath.Join(basePath, ".claude", "commands")
+			agentsPath = filepath.Join(basePath, ".claude", "agents")
+		}
+		
 		if err := i.importCommands(commandsPath, options, result); err != nil && !os.IsNotExist(err) {
 			result.Errors = append(result.Errors, fmt.Errorf("failed to import commands: %w", err))
 		}
+		
+		if err := i.importAgents(agentsPath, options, result); err != nil && !os.IsNotExist(err) {
+			result.Errors = append(result.Errors, fmt.Errorf("failed to import agents: %w", err))
+		}
 	}
 
-	// Import GitHub Actions workflows
-	if !options.CommandsOnly && !options.ConfigOnly {
+	// Import GitHub Actions workflows (only when explicitly requested)
+	if options.WorkflowsOnly {
 		workflowsPath := filepath.Join(basePath, ".github", "workflows")
 		if err := i.importWorkflows(workflowsPath, options, result); err != nil && !os.IsNotExist(err) {
 			result.Errors = append(result.Errors, fmt.Errorf("failed to import workflows: %w", err))
 		}
 	}
 
-	// Import configuration files
-	if !options.CommandsOnly && !options.WorkflowsOnly {
+	// Import configuration files (only when explicitly requested)
+	if options.ConfigOnly {
 		if err := i.importConfigurations(basePath, options, result); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("failed to import configurations: %w", err))
 		}
@@ -155,6 +190,137 @@ func (i *ClaudeCodeImporter) importCommands(commandsPath string, options ImportO
 	})
 }
 
+// importAgents imports agent files from .claude/agents/
+func (i *ClaudeCodeImporter) importAgents(agentsPath string, options ImportOptions, result *ImportResult) error {
+	if _, err := os.Stat(agentsPath); os.IsNotExist(err) {
+		return nil // No agents directory, skip
+	}
+
+	return filepath.Walk(agentsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && strings.HasSuffix(path, ".md") {
+			prompt, template, err := i.importAgentFile(path, agentsPath, options)
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("failed to import agent %s: %w", path, err))
+				return nil // Continue walking
+			}
+
+			if template != nil {
+				result.Templates = append(result.Templates, template)
+			}
+			if prompt != nil {
+				result.Commands = append(result.Commands, prompt)
+			}
+		}
+
+		return nil
+	})
+}
+
+// importAgentFile imports a single agent file
+func (i *ClaudeCodeImporter) importAgentFile(filePath, agentsRoot string, options ImportOptions) (*models.Prompt, *models.Template, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Parse the file
+	frontmatter, markdownContent := i.parseFrontmatter(content)
+	
+	// Generate relative path for namespace/tagging
+	relPath, _ := filepath.Rel(agentsRoot, filePath)
+	pathParts := strings.Split(filepath.Dir(relPath), string(os.PathSeparator))
+	
+	// Generate ID based on file path
+	id := i.generateIDFromPath(relPath)
+	
+	// Determine base tags - agents get special tagging
+	tags := []string{"claude-code", "agent"}
+	if len(pathParts) > 0 && pathParts[0] != "." {
+		tags = append(tags, pathParts...) // Add directory structure as tags
+	}
+	tags = append(tags, options.Tags...) // Add user-specified tags
+	tags = i.cleanTags(tags)
+
+	// Extract metadata from frontmatter
+	var agentType string
+	var tools []string
+	var description string
+	
+	if frontmatter != nil {
+		if aType, ok := frontmatter["agent-type"]; ok {
+			if typeStr, ok := aType.(string); ok {
+				agentType = typeStr
+				tags = append(tags, "agent-type-"+typeStr)
+			}
+		}
+		if agentTools, ok := frontmatter["tools"]; ok {
+			if toolsList, ok := agentTools.([]interface{}); ok {
+				for _, tool := range toolsList {
+					if toolStr, ok := tool.(string); ok {
+						tools = append(tools, toolStr)
+					}
+				}
+			}
+		}
+		if desc, ok := frontmatter["description"]; ok {
+			if descStr, ok := desc.(string); ok {
+				description = descStr
+			}
+		}
+	}
+
+	// Extract title from first line of content if available
+	title := i.extractTitle(markdownContent, filePath)
+
+	// Check if this should be a template (has variables)
+	variables := i.extractVariables(markdownContent)
+	processedContent := i.processContent(markdownContent, variables)
+
+	now := time.Now()
+
+	if len(variables) > 0 {
+		// Create as template
+		template := &models.Template{
+			ID:          id,
+			Version:     "1.0.0",
+			Name:        title,
+			Description: description,
+			Content:     processedContent,
+			Slots:       variables,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			FilePath:    filepath.Join("templates", i.sanitizeFilename(id)+".md"),
+		}
+
+		return nil, template, nil
+	}
+
+	// Create as prompt
+	prompt := &models.Prompt{
+		ID:        id,
+		Version:   "1.0.0",
+		Name:      title,
+		Summary:   description,
+		Content:   processedContent,
+		Tags:      tags,
+		CreatedAt: now,
+		UpdatedAt: now,
+		FilePath:  filepath.Join("prompts", i.sanitizeFilename(id)+".md"),
+		Metadata: map[string]interface{}{
+			"source":        "claude-code-agent",
+			"original_path": filePath,
+			"agent_type":    agentType,
+			"tools":         tools,
+		},
+	}
+
+	return prompt, nil, nil
+}
+
 // importCommandFile imports a single command file
 func (i *ClaudeCodeImporter) importCommandFile(filePath, commandsRoot string, options ImportOptions) (*models.Prompt, *models.Template, error) {
 	content, err := os.ReadFile(filePath)
@@ -174,7 +340,9 @@ func (i *ClaudeCodeImporter) importCommandFile(filePath, commandsRoot string, op
 	
 	// Determine base tags
 	tags := []string{"claude-code", "command"}
-	tags = append(tags, pathParts...) // Add directory structure as tags
+	if len(pathParts) > 0 && pathParts[0] != "." {
+		tags = append(tags, pathParts...) // Add directory structure as tags
+	}
 	tags = append(tags, options.Tags...) // Add user-specified tags
 	tags = i.cleanTags(tags)
 
@@ -328,6 +496,9 @@ func (i *ClaudeCodeImporter) importWorkflowFile(filePath, workflowsRoot string, 
 
 // importConfigurations imports configuration files like CLAUDE.md
 func (i *ClaudeCodeImporter) importConfigurations(basePath string, options ImportOptions, result *ImportResult) error {
+	// Check if we're already in a .claude directory
+	isClaudeDir := filepath.Base(basePath) == ".claude"
+	
 	// Import CLAUDE.md files
 	claudeMdPath := filepath.Join(basePath, "CLAUDE.md")
 	if _, err := os.Stat(claudeMdPath); err == nil {
@@ -339,8 +510,16 @@ func (i *ClaudeCodeImporter) importConfigurations(basePath string, options Impor
 		}
 	}
 
-	// Import .claude/settings.local.json or other config files
-	settingsPath := filepath.Join(basePath, ".claude", "settings.local.json")
+	// Import settings files
+	var settingsPath string
+	if isClaudeDir {
+		// We're already in ~/.claude, look for settings files directly
+		settingsPath = filepath.Join(basePath, "settings.local.json")
+	} else {
+		// We're in a project directory, look for .claude/settings.local.json
+		settingsPath = filepath.Join(basePath, ".claude", "settings.local.json")
+	}
+	
 	if _, err := os.Stat(settingsPath); err == nil {
 		prompt, err := i.importSettingsFile(settingsPath, options)
 		if err != nil {

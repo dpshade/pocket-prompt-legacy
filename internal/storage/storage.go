@@ -320,8 +320,10 @@ func parsePromptFile(content []byte) (*models.Prompt, error) {
 	for scanner.Scan() {
 		contentLines = append(contentLines, scanner.Text())
 	}
-	// Join content and trim leading/trailing whitespace
-	prompt.Content = strings.TrimSpace(strings.Join(contentLines, "\n"))
+	// Join content preserving original formatting
+	prompt.Content = strings.Join(contentLines, "\n")
+	// Trim only leading whitespace/newlines
+	prompt.Content = strings.TrimLeft(prompt.Content, " \t\n")
 
 	return &prompt, nil
 }
@@ -356,8 +358,10 @@ func parseTemplateFile(content []byte) (*models.Template, error) {
 	for scanner.Scan() {
 		contentLines = append(contentLines, scanner.Text())
 	}
-	// Join content and trim leading/trailing whitespace
-	template.Content = strings.TrimSpace(strings.Join(contentLines, "\n"))
+	// Join content preserving original formatting
+	template.Content = strings.Join(contentLines, "\n")
+	// Trim only leading whitespace/newlines
+	template.Content = strings.TrimLeft(template.Content, " \t\n")
 
 	return &template, nil
 }
@@ -381,7 +385,11 @@ func serializePrompt(prompt *models.Prompt) ([]byte, error) {
 	// Write content with proper spacing
 	if prompt.Content != "" {
 		buf.WriteString("\n")
-		buf.WriteString(strings.TrimSpace(prompt.Content))
+		buf.WriteString(prompt.Content)
+		// Ensure file ends with newline
+		if !strings.HasSuffix(prompt.Content, "\n") {
+			buf.WriteString("\n")
+		}
 	}
 
 	return buf.Bytes(), nil
@@ -407,7 +415,11 @@ func serializeTemplate(template *models.Template) ([]byte, error) {
 	// Write content with proper spacing
 	if template.Content != "" {
 		buf.WriteString("\n")
-		buf.WriteString(strings.TrimSpace(template.Content))
+		buf.WriteString(template.Content)
+		// Ensure file ends with newline
+		if !strings.HasSuffix(template.Content, "\n") {
+			buf.WriteString("\n")
+		}
 	}
 
 	return buf.Bytes(), nil

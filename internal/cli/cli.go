@@ -1730,9 +1730,9 @@ Usage:
   pocket-prompt import <file> [options]       # Import from JSON file
 
 Claude Code Import Options:
-  --path <path>           Directory to import from (default: current directory)
-  --user                  Also import user-level commands from ~/.claude/commands
-  --commands-only         Import only command files (.claude/commands/)
+  --path <path>           Directory to import from (default: current dir + ~/.claude)
+  --user                  When used with --path, also import from ~/.claude
+  --commands-only         Import only command files (.claude/commands/ and .claude/agents/)
   --workflows-only        Import only GitHub Actions workflows
   --config-only           Import only configuration files (CLAUDE.md)
   --preview, --dry-run    Preview what would be imported without importing
@@ -1745,17 +1745,17 @@ File Import Options:
   --format, -f <format>   Import format (json)
 
 Examples:
-  # Import everything from current project
+  # Import from current project + ~/.claude/commands and ~/.claude/agents
   pocket-prompt import claude-code
 
   # Preview what would be imported
   pocket-prompt import claude-code --preview
 
-  # Import from specific directory with additional tags
-  pocket-prompt import claude-code --path /path/to/project --tags custom,team
+  # Import from specific directory only (without ~/.claude)
+  pocket-prompt import claude-code --path /path/to/project
 
-  # Import only commands with user-level commands
-  pocket-prompt import claude-code --commands-only --user
+  # Import from specific directory + ~/.claude directories
+  pocket-prompt import claude-code --path /path/to/project --user
 
   # Import from JSON backup
   pocket-prompt import backup.json --format json`)
